@@ -26,6 +26,8 @@ and is not an official upstream release.
 
 ## GAOKAO commands
 
+中文使用说明：[Obsidian-GAOKAO学习系统快速上手](docs/Obsidian-GAOKAO学习系统快速上手.md)
+
 - `GAOKAO: Open Today`
 - `GAOKAO: Create subject learning note`
 - `GAOKAO: Capture image evidence`
