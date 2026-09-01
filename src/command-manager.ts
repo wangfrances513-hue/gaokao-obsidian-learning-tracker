@@ -1,0 +1,558 @@
+import { Notice, Platform, TFile } from "obsidian";
+
+import { SettingsManager } from "src/data/settings-manager";
+import { GaokaoTodayManager } from "src/gaokao/today-manager";
+import { GaokaoWorkflowManager } from "src/gaokao/workflow-manager";
+import { t } from "src/lang/helpers";
+import SRPlugin from "src/main";
+import { ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
+import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
+import { UIManager, UIState } from "src/ui/ui-manager";
+import EmulatedPlatform from "src/utils/platform-detector";
+
+export class CommandManager {
+    private plugin: SRPlugin;
+    private settingsManager: SettingsManager;
+    private uiManager: UIManager;
+    private gaokaoWorkflowManager: GaokaoWorkflowManager;
+    private gaokaoTodayManager: GaokaoTodayManager;
+
+    constructor(
+        plugin: SRPlugin,
+        settingsManager: SettingsManager,
+        uiManager: UIManager,
+        gaokaoWorkflowManager: GaokaoWorkflowManager,
+        gaokaoTodayManager: GaokaoTodayManager,
+    ) {
+        this.plugin = plugin;
+        this.settingsManager = settingsManager;
+        this.uiManager = uiManager;
+        this.gaokaoWorkflowManager = gaokaoWorkflowManager;
+        this.gaokaoTodayManager = gaokaoTodayManager;
+    }
+
+    /**
+     * register all the plugin commands once the plugin is loaded
+     */
+    public onLayoutReady() {
+        if (this.settingsManager.settings.useCustomHotkeys) {
+            this.addCustomHotkeys();
+        }
+
+        this.addPluginCommands();
+    }
+
+    /**
+     * remove all the plugin commands once the plugin is unloaded
+     */
+    public onunload() {
+        this.removeCustomHotkeys();
+    }
+
+    /**
+     * remove all the hotkeys
+     */
+    public removeCustomHotkeys() {
+        this.plugin.removeCommand("srs-card-review-again");
+        this.plugin.removeCommand("srs-card-review-hard");
+        this.plugin.removeCommand("srs-card-review-good");
+        this.plugin.removeCommand("srs-card-review-easy");
+        this.plugin.removeCommand("srs-card-review-show-answer");
+        this.plugin.removeCommand("srs-card-review-reset");
+        this.plugin.removeCommand("srs-card-review-open-in-background");
+        this.plugin.removeCommand("srs-card-review-skip");
+    }
+
+    /**
+     * add all the hotkeys
+     */
+    public addCustomHotkeys() {
+        this.plugin.addCommand({
+            id: "srs-card-review-again",
+            name: t("REVIEW_CARD_DIFFICULTY_CMD", {
+                difficulty: this.settingsManager.settings.flashcardAgainText,
+            }),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                if (
+                    this.plugin.isInitialized &&
+                    this.uiManager.uiState === UIState.CardBack &&
+                    this.uiManager.isSRInFocus &&
+                    this.uiManager.contentManager !== null &&
+                    !(
+                        Platform.isMobile || // No keyboard events on mobile
+                        EmulatedPlatform().isMobile
+                    ) &&
+                    !(
+                        activeDocument.activeElement !== null &&
+                        (activeDocument.activeElement.nodeName === "TEXTAREA" ||
+                            activeDocument.activeElement.nodeName === "INPUT")
+                    )
+                ) {
+                    if (!checking) {
+                        void this.uiManager.contentManager._processReview(ReviewResponse.Again);
+                    }
+                    return true;
+                }
+                return false;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-card-review-hard",
+            name: t("REVIEW_CARD_DIFFICULTY_CMD", {
+                difficulty: this.settingsManager.settings.flashcardHardText,
+            }),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                if (
+                    this.plugin.isInitialized &&
+                    this.uiManager.uiState === UIState.CardBack &&
+                    this.uiManager.isSRInFocus &&
+                    this.uiManager.contentManager !== null &&
+                    !(
+                        Platform.isMobile || // No keyboard events on mobile
+                        EmulatedPlatform().isMobile
+                    ) &&
+                    !(
+                        activeDocument.activeElement !== null &&
+                        (activeDocument.activeElement.nodeName === "TEXTAREA" ||
+                            activeDocument.activeElement.nodeName === "INPUT")
+                    )
+                ) {
+                    if (!checking) {
+                        void this.uiManager.contentManager._processReview(ReviewResponse.Hard);
+                    }
+                    return true;
+                }
+                return false;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-card-review-good",
+            name: t("REVIEW_CARD_DIFFICULTY_CMD", {
+                difficulty: this.settingsManager.settings.flashcardGoodText,
+            }),
+            checkCallback: (checking: boolean) => {
+                if (
+                    this.plugin.isInitialized &&
+                    this.uiManager.uiState === UIState.CardBack &&
+                    this.uiManager.isSRInFocus &&
+                    this.uiManager.contentManager !== null &&
+                    !(
+                        Platform.isMobile || // No keyboard events on mobile
+                        EmulatedPlatform().isMobile
+                    ) &&
+                    !(
+                        activeDocument.activeElement !== null &&
+                        (activeDocument.activeElement.nodeName === "TEXTAREA" ||
+                            activeDocument.activeElement.nodeName === "INPUT")
+                    )
+                ) {
+                    if (!checking) {
+                        void this.uiManager.contentManager._processReview(ReviewResponse.Good);
+                    }
+                    return true;
+                }
+                return false;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-card-review-easy",
+            name: t("REVIEW_CARD_DIFFICULTY_CMD", {
+                difficulty: this.settingsManager.settings.flashcardEasyText,
+            }),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                if (
+                    this.plugin.isInitialized &&
+                    this.uiManager.uiState === UIState.CardBack &&
+                    this.uiManager.isSRInFocus &&
+                    this.uiManager.contentManager !== null &&
+                    !(
+                        Platform.isMobile || // No keyboard events on mobile
+                        EmulatedPlatform().isMobile
+                    ) &&
+                    !(
+                        activeDocument.activeElement !== null &&
+                        (activeDocument.activeElement.nodeName === "TEXTAREA" ||
+                            activeDocument.activeElement.nodeName === "INPUT")
+                    )
+                ) {
+                    if (!checking) {
+                        void this.uiManager.contentManager._processReview(ReviewResponse.Easy);
+                    }
+                    return true;
+                }
+                return false;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-card-review-show-answer",
+            name: t("SHOW_ANSWER"),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                if (
+                    this.plugin.isInitialized &&
+                    this.uiManager.uiState === UIState.CardFront &&
+                    this.uiManager.isSRInFocus &&
+                    this.uiManager.contentManager !== null &&
+                    !(
+                        Platform.isMobile || // No keyboard events on mobile
+                        EmulatedPlatform().isMobile
+                    ) &&
+                    !(
+                        activeDocument.activeElement !== null &&
+                        (activeDocument.activeElement.nodeName === "TEXTAREA" ||
+                            activeDocument.activeElement.nodeName === "INPUT")
+                    )
+                ) {
+                    if (!checking) {
+                        void this.uiManager.contentManager._showAnswer();
+                    }
+                    return true;
+                }
+                return false;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-card-review-skip",
+            name: t("SKIP"),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                if (
+                    this.plugin.isInitialized &&
+                    (this.uiManager.uiState === UIState.CardBack ||
+                        this.uiManager.uiState === UIState.CardFront) &&
+                    this.uiManager.isSRInFocus &&
+                    this.uiManager.contentManager !== null &&
+                    !(
+                        Platform.isMobile || // No keyboard events on mobile
+                        EmulatedPlatform().isMobile
+                    ) &&
+                    !(
+                        activeDocument.activeElement !== null &&
+                        (activeDocument.activeElement.nodeName === "TEXTAREA" ||
+                            activeDocument.activeElement.nodeName === "INPUT")
+                    )
+                ) {
+                    if (!checking) {
+                        void this.uiManager.contentManager._skipCurrentCard();
+                    }
+                    return true;
+                }
+                return false;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-card-review-reset",
+            name: t("RESET_CARD_PROGRESS"),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                if (
+                    this.plugin.isInitialized &&
+                    this.uiManager.uiState === UIState.CardBack &&
+                    this.uiManager.isSRInFocus &&
+                    this.uiManager.contentManager !== null &&
+                    !(
+                        Platform.isMobile || // No keyboard events on mobile
+                        EmulatedPlatform().isMobile
+                    ) &&
+                    !(
+                        activeDocument.activeElement !== null &&
+                        (activeDocument.activeElement.nodeName === "TEXTAREA" ||
+                            activeDocument.activeElement.nodeName === "INPUT")
+                    )
+                ) {
+                    if (!checking) {
+                        void this.uiManager.contentManager._processReview(ReviewResponse.Reset);
+                    }
+                    return true;
+                }
+                return false;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-card-review-open-in-background",
+            name: t("OPEN_IN_BACKGROUND"),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                if (
+                    this.plugin.isInitialized &&
+                    this.uiManager.uiState === UIState.CardBack &&
+                    this.uiManager.isSRInFocus &&
+                    this.uiManager.contentManager !== null &&
+                    !(
+                        Platform.isMobile || // No keyboard events on mobile
+                        EmulatedPlatform().isMobile
+                    ) &&
+                    !(
+                        activeDocument.activeElement !== null &&
+                        (activeDocument.activeElement.nodeName === "TEXTAREA" ||
+                            activeDocument.activeElement.nodeName === "INPUT")
+                    )
+                ) {
+                    if (!checking) {
+                        void this.uiManager.contentManager._jumpToCurrentCard();
+                    }
+                    return true;
+                }
+                return false;
+            },
+        });
+    }
+
+    /**
+     * add all the plugin commands
+     */
+    private addPluginCommands() {
+        this.plugin.addCommand({
+            id: "gaokao-open-today",
+            name: "GAOKAO: Open Today",
+            repeatable: false,
+            callback: () => {
+                if (!this.plugin.isInitialized) return;
+                void this.gaokaoTodayManager.openToday();
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "gaokao-create-learning-note",
+            name: "GAOKAO: Create subject learning note",
+            repeatable: false,
+            callback: () => {
+                if (!this.plugin.isInitialized) return;
+                this.gaokaoWorkflowManager.createLearningNote();
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "gaokao-capture-image-evidence",
+            name: "GAOKAO: Capture image evidence",
+            repeatable: false,
+            callback: () => {
+                if (!this.plugin.isInitialized) return;
+                void this.gaokaoWorkflowManager.captureImageEvidence();
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "gaokao-record-learning-event",
+            name: "GAOKAO: Record study/practice/verification",
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                if (!this.gaokaoWorkflowManager.canRecordCurrentNote()) return false;
+                if (!checking) void this.gaokaoWorkflowManager.recordLearningEventForCurrentNote();
+                return true;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "gaokao-show-recent-events",
+            name: "GAOKAO: Show recent learning events",
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                if (!this.gaokaoWorkflowManager.canShowRecentEventsForCurrentNote()) return false;
+                if (!checking) this.gaokaoWorkflowManager.showRecentEventsForCurrentNote();
+                return true;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "gaokao-validate-current-note",
+            name: "GAOKAO: Validate current note",
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                const openFile: TFile | null = this.plugin.app.workspace.getActiveFile();
+                if (openFile === null || openFile.extension !== "md" || !this.plugin.isInitialized)
+                    return false;
+
+                if (!checking) {
+                    const inspection = this.plugin.dataManager.inspectGaokaoFile(openFile);
+                    const historyCount = inspection.entity
+                        ? this.plugin.dataManager.getGaokaoEventHistory(inspection.entity.gaokao_id)
+                              .length
+                        : 0;
+                    const details = inspection.issues.map((issue) => issue.message).join(" ");
+                    new Notice(
+                        `GAOKAO ${inspection.status}: ${
+                            inspection.entity?.gaokao_id ?? openFile.path
+                        }. Events: ${historyCount}.${details.length === 0 ? "" : ` ${details}`}`,
+                        10000,
+                    );
+                }
+                return true;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-note-review-open-note",
+            name: t("OPEN_NOTE_FOR_REVIEW"),
+            callback: async () => {
+                if (
+                    !this.plugin.dataManager.syncLock &&
+                    this.plugin.nextNoteReviewHandler !== null &&
+                    this.plugin.isInitialized
+                ) {
+                    await this.plugin.dataManager.sync();
+                    await this.plugin.nextNoteReviewHandler.reviewNextNoteModal();
+                }
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-note-review-again",
+            name: t("REVIEW_NOTE_DIFFICULTY_CMD", {
+                difficulty: this.settingsManager.settings.flashcardAgainText,
+            }),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                const openFile: TFile | null = this.plugin.app.workspace.getActiveFile();
+
+                if (openFile === null || openFile.extension !== "md" || !this.plugin.isInitialized)
+                    return false;
+
+                if (!checking) {
+                    void this.plugin.dataManager.saveNoteReviewResponse(
+                        openFile,
+                        ReviewResponse.Again,
+                    );
+                }
+                return true;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-note-review-hard",
+            name: t("REVIEW_NOTE_DIFFICULTY_CMD", {
+                difficulty: this.settingsManager.settings.flashcardHardText,
+            }),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                const openFile: TFile | null = this.plugin.app.workspace.getActiveFile();
+
+                if (openFile === null || openFile.extension !== "md" || !this.plugin.isInitialized)
+                    return false;
+
+                if (!checking) {
+                    void this.plugin.dataManager.saveNoteReviewResponse(
+                        openFile,
+                        ReviewResponse.Hard,
+                    );
+                }
+                return true;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-note-review-good",
+            name: t("REVIEW_NOTE_DIFFICULTY_CMD", {
+                difficulty: this.settingsManager.settings.flashcardGoodText,
+            }),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                const openFile: TFile | null = this.plugin.app.workspace.getActiveFile();
+
+                if (openFile === null || openFile.extension !== "md" || !this.plugin.isInitialized)
+                    return false;
+
+                if (!checking) {
+                    void this.plugin.dataManager.saveNoteReviewResponse(
+                        openFile,
+                        ReviewResponse.Good,
+                    );
+                }
+                return true;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-note-review-easy",
+            name: t("REVIEW_NOTE_DIFFICULTY_CMD", {
+                difficulty: this.settingsManager.settings.flashcardEasyText,
+            }),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                const openFile: TFile | null = this.plugin.app.workspace.getActiveFile();
+
+                if (openFile === null || openFile.extension !== "md" || !this.plugin.isInitialized)
+                    return false;
+
+                if (!checking) {
+                    void this.plugin.dataManager.saveNoteReviewResponse(
+                        openFile,
+                        ReviewResponse.Easy,
+                    );
+                }
+                return true;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-review-flashcards",
+            name: t("REVIEW_ALL_CARDS"),
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.openDeckContainer(FlashcardReviewMode.Review);
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-cram-flashcards",
+            name: t("CRAM_ALL_CARDS"),
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.openDeckContainer(FlashcardReviewMode.Cram);
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-review-flashcards-in-note",
+            name: t("REVIEW_CARDS_IN_NOTE"),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                const openFile: TFile | null = this.plugin.app.workspace.getActiveFile();
+
+                if (openFile === null || openFile.extension !== "md" || !this.plugin.isInitialized)
+                    return false;
+
+                if (!checking) {
+                    void this.uiManager.openDeckContainer(FlashcardReviewMode.Review, openFile);
+                }
+                return true;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-cram-flashcards-in-note",
+            name: t("CRAM_CARDS_IN_NOTE"),
+            repeatable: false,
+            checkCallback: (checking: boolean) => {
+                const openFile: TFile | null = this.plugin.app.workspace.getActiveFile();
+
+                if (openFile === null || openFile.extension !== "md" || !this.plugin.isInitialized)
+                    return false;
+
+                if (!checking) {
+                    void this.uiManager.openDeckContainer(FlashcardReviewMode.Cram, openFile);
+                }
+                return true;
+            },
+        });
+
+        this.plugin.addCommand({
+            id: "srs-open-review-queue-view",
+            name: t("OPEN_REVIEW_QUEUE_VIEW"),
+            callback: async () => {
+                if (!this.plugin.isInitialized) return;
+                await this.uiManager.sidebarManager.openReviewQueueView();
+            },
+        });
+    }
+}

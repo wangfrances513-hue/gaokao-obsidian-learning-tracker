@@ -1,0 +1,11 @@
+// Norsk
+import { IBaseLocale } from "src/lang/base-locale";
+import en from "src/lang/locale/en";
+
+const no: IBaseLocale = {
+    ...en,
+    language: "no",
+    languageName: "Norsk",
+};
+
+export default no;
