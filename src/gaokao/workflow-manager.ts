@@ -110,9 +110,13 @@ export class GaokaoWorkflowManager {
     async captureReviewFeedback(
         request: GaokaoReviewFeedbackRequest,
     ): Promise<GaokaoFeedback | null> {
+        if (request.rating === "good" || request.rating === "easy") {
+            return {};
+        }
         return await GaokaoFeedbackModal.capture(this.plugin.app, {
             notePath: request.notePath,
             visibleRating: request.visibleRating,
+            context: "review",
         });
     }
 
@@ -440,11 +444,12 @@ export class GaokaoWorkflowManager {
         const guarded = await this.submissionGuard.run(guardKey, async () => {
             const eventType = await GaokaoEventTypeModal.choose(this.plugin.app);
             if (eventType === null) return;
-            const feedback =
-                (await GaokaoFeedbackModal.capture(this.plugin.app, {
-                    notePath: current.file.path,
-                    visibleRating: this.getEventTypeLabel(eventType),
-                })) ?? {};
+            const feedback = await GaokaoFeedbackModal.capture(this.plugin.app, {
+                notePath: current.file.path,
+                visibleRating: this.getEventTypeLabel(eventType),
+                context: "manual",
+            });
+            if (feedback === null) return;
 
             const result = await this.plugin.dataManager.recordGaokaoLearningEvent(current.file, {
                 event_type: eventType,

@@ -93,7 +93,7 @@ describe("Task 005 Math/Physics note templates", () => {
         expect(note.content).toContain("## 临界条件");
     });
 
-    test("generates the model-analysis Physics representative-problem note", () => {
+    test("generates the compact four-part Physics representative-problem note", () => {
         const note = buildGaokaoNote({
             templateId: "physics_problem",
             gaokaoId: idFor("physics_problem"),
@@ -101,10 +101,28 @@ describe("Task 005 Math/Physics note templates", () => {
             knowledgeIds: ["physics-model-123e4567e89b"],
         });
 
-        expect(note.frontmatter.subject).toBe("物理");
-        expect(note.content).toContain("## 受力分析");
-        expect(note.content).toContain("## 方程链");
-        expect(note.content).toContain("## 正确模型");
+        expect(note.frontmatter).toMatchObject({
+            entity_type: "problem_case",
+            subject: "物理",
+            knowledge_ids: ["physics-model-123e4567e89b"],
+            difficulty: "medium",
+            status: "active",
+            tags: ["review"],
+        });
+        expect(note.content.match(/^## .+$/gm)).toEqual([
+            "## 题面",
+            "## 关键模型与步骤",
+            "## 当前卡点与下次识别信号",
+            "## 再验证",
+        ]);
+        expect(note.content).toContain(
+            "## 关键模型与步骤\n\n可选提示：研究对象、过程划分、初态与末态、受力、规律、方程链、临界条件与正确模型。",
+        );
+        expect(note.content).toContain(
+            "## 当前卡点与下次识别信号\n\n可选提示：记录我的错误、当前卡点与下次识别信号。",
+        );
+        expect(note.content).not.toContain("## 研究对象");
+        expect(note.content).not.toContain("## 我的错误");
     });
 
     test.each(GAOKAO_NOTE_TEMPLATE_IDS)("generates a valid stable ID for %s", (templateId) => {

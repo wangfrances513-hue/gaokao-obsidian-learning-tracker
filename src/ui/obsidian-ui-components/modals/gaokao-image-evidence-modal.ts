@@ -228,19 +228,29 @@ export class GaokaoImageEvidenceModal<TPlan> extends Modal {
             confirmation.attachmentDisposition === "reused_existing"
                 ? "复用现有附件"
                 : "新建当前操作拥有的附件";
-        const lines = [
+        const visibleLines = [
             `科目：${confirmation.subject}`,
             `知识点：${confirmation.knowledgePath}｜${confirmation.knowledgeId}`,
             `附件处置：${disposition}`,
             `计划附件路径：${confirmation.attachmentPath}`,
             `计划问题笔记路径：${confirmation.notePath}`,
-            `SHA-256：${confirmation.sha256}`,
-            `字节长度：${confirmation.byteLength}`,
-            `规范类型：${confirmation.canonicalKind}`,
-            `本机捕获年月：${confirmation.capturedYear}-${confirmation.capturedMonth}`,
             "本次操作不会记录 Learning Event。",
         ];
-        this.contentEl.createDiv({ cls: "gaokao-workflow-help", text: lines.join("\n") });
+        this.contentEl.createDiv({
+            cls: "gaokao-workflow-help",
+            text: visibleLines.join("\n"),
+        });
+        const technicalDetails = this.contentEl.createEl("details");
+        technicalDetails.createEl("summary", { text: "技术详情" });
+        technicalDetails.createDiv({
+            cls: "gaokao-workflow-help",
+            text: [
+                `SHA-256：${confirmation.sha256}`,
+                `字节长度：${confirmation.byteLength}`,
+                `规范类型：${confirmation.canonicalKind}`,
+                `本机捕获年月：${confirmation.capturedYear}-${confirmation.capturedMonth}`,
+            ].join("\n"),
+        });
         this.contentEl.createDiv({
             cls: "gaokao-workflow-help",
             text: "隐私提示：图片元数据（包括可能存在的 EXIF）将保持原样。确认后的 ID、路径、哈希、正文和 frontmatter 不会静默改变。",

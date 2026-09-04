@@ -93,8 +93,10 @@ export class GaokaoTodayView extends ItemView {
             "未排期主动任务",
         );
 
-        this.renderProtectedReviews(plan);
-        this.renderDiscretionaryWork(plan.discretionaryWork);
+        const primaryEntityId =
+            plan.protectedReviews[0]?.entityId ?? plan.discretionaryWork[0]?.entityId;
+        this.renderProtectedReviews(plan, primaryEntityId);
+        this.renderDiscretionaryWork(plan.discretionaryWork, primaryEntityId);
 
         if (snapshot.invalidOrDuplicateCount > 0 || plan.unavailableScheduleCount > 0) {
             const diagnostics = this.contentEl.createDiv("gaokao-today-diagnostics");
@@ -129,10 +131,13 @@ export class GaokaoTodayView extends ItemView {
         card.createDiv({ cls: "gaokao-today-summary-detail", text: detail });
     }
 
-    private renderProtectedReviews(plan: {
-        protectedReviews: TodayPlanItem[];
-        minimumRecommendedReviews: TodayPlanItem[];
-    }): void {
+    private renderProtectedReviews(
+        plan: {
+            protectedReviews: TodayPlanItem[];
+            minimumRecommendedReviews: TodayPlanItem[];
+        },
+        primaryEntityId: string | undefined,
+    ): void {
         const section = this.createSection(
             "到期与逾期复习",
             "调度器是唯一日期权威；学科权重不会隐藏这里的任何项目。",
@@ -146,11 +151,20 @@ export class GaokaoTodayView extends ItemView {
         const list = section.createDiv("gaokao-today-list");
         for (const item of plan.protectedReviews) {
             const badge = minimumIds.has(item.entityId) ? "最低建议" : "到期积压";
-            this.createItem(list, item, badge, this.formatDueStatus(item));
+            this.createItem(
+                list,
+                item,
+                badge,
+                this.formatDueStatus(item),
+                item.entityId === primaryEntityId,
+            );
         }
     }
 
-    private renderDiscretionaryWork(items: TodayPlanItem[]): void {
+    private renderDiscretionaryWork(
+        items: TodayPlanItem[],
+        primaryEntityId: string | undefined,
+    ): void {
         const section = this.createSection(
             "最低日常任务 / 推荐学习",
             "仅对未排期的有效实体排序；不会提前改写或替代复习调度。",
@@ -165,7 +179,13 @@ export class GaokaoTodayView extends ItemView {
 
         const list = section.createDiv("gaokao-today-list");
         for (const item of items) {
-            this.createItem(list, item, "推荐", `学习需求：${NEED_LABELS[item.needLabel]}`);
+            this.createItem(
+                list,
+                item,
+                "推荐",
+                `学习需求：${NEED_LABELS[item.needLabel]}`,
+                item.entityId === primaryEntityId,
+            );
         }
     }
 
@@ -181,6 +201,7 @@ export class GaokaoTodayView extends ItemView {
         item: TodayPlanItem,
         badge: string,
         status: string,
+        isPrimary: boolean,
     ): void {
         const button = parent.createEl("button", { cls: "gaokao-today-item" });
         button.setAttr("type", "button");
@@ -189,6 +210,9 @@ export class GaokaoTodayView extends ItemView {
 
         const main = button.createDiv("gaokao-today-item-main");
         const titleRow = main.createDiv("gaokao-today-item-title-row");
+        if (isPrimary) {
+            titleRow.createSpan({ cls: "gaokao-today-badge", text: "立即开始" });
+        }
         titleRow.createSpan({ cls: "gaokao-today-badge", text: badge });
         titleRow.createSpan({ cls: "gaokao-today-item-title", text: item.title });
         main.createDiv({
@@ -197,10 +221,13 @@ export class GaokaoTodayView extends ItemView {
         });
 
         const estimate = button.createDiv("gaokao-today-estimate");
-        estimate.createSpan({ text: `约 ${item.durationEstimate.minutes} 分钟` });
-        estimate.createEl("small", {
-            text: item.durationEstimate.source === "history" ? "历史中位数" : "默认估计",
-        });
+        if (item.durationEstimate.source === "history") {
+            estimate.createSpan({ text: `约 ${item.durationEstimate.minutes} 分钟` });
+            estimate.createEl("small", { text: "历史中位数，仅供参考" });
+        } else {
+            estimate.createSpan({ text: "用时未知" });
+            estimate.createEl("small", { text: "无有效历史" });
+        }
         const arrow = button.createSpan("gaokao-today-item-arrow");
         setIcon(arrow, "arrow-up-right");
     }

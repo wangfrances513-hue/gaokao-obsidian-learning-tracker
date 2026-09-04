@@ -130,20 +130,7 @@ export const GAOKAO_NOTE_TEMPLATES: readonly GaokaoNoteTemplateDefinition[] = [
         entityType: "problem_case",
         defaultFolder: "物理/代表题",
         idPrefix: "problem-physics",
-        bodySections: [
-            "题面",
-            "研究对象",
-            "过程划分",
-            "初态与末态",
-            "受力分析",
-            "规律选择",
-            "方程链",
-            "临界条件",
-            "我的错误",
-            "正确模型",
-            "下次识别信号",
-            "再验证",
-        ],
+        bodySections: ["题面", "关键模型与步骤", "当前卡点与下次识别信号", "再验证"],
     },
     {
         id: "chemistry_knowledge",
@@ -553,7 +540,17 @@ export function buildGaokaoNote(input: GaokaoTemplateInput): GeneratedGaokaoNote
         );
         bodyParts.push(`![[${evidence.attachmentPath}]]`, `SHA-256: ${evidence.sha256}`);
     }
-    bodyParts.push(...template.bodySections.map((section) => `## ${section}`));
+    for (const section of template.bodySections) {
+        bodyParts.push(`## ${section}`);
+        if (template.id === "physics_problem" && section === "关键模型与步骤") {
+            bodyParts.push(
+                "可选提示：研究对象、过程划分、初态与末态、受力、规律、方程链、临界条件与正确模型。",
+            );
+        }
+        if (template.id === "physics_problem" && section === "当前卡点与下次识别信号") {
+            bodyParts.push("可选提示：记录我的错误、当前卡点与下次识别信号。");
+        }
+    }
     const body = bodyParts.join("\n\n");
     return {
         path: `${folder}/${title}.md`,

@@ -122,7 +122,7 @@ describe("Task 006 Today protected reviews", () => {
 });
 
 describe("Task 006 discretionary ranking", () => {
-    test("uses the canonical subject priority baseline for otherwise equal candidates", () => {
+    test("uses subject priority only when existing learning signals are otherwise equal", () => {
         const subjects: GaokaoSubject[] = ["语文", "英语", "生物", "化学", "物理", "数学"];
         const plan = buildTodayPlan(
             subjects.map((subject) => candidate(`candidate-${subject}`, subject)),
@@ -147,6 +147,57 @@ describe("Task 006 discretionary ranking", () => {
         ]);
     });
 
+    test("lets sparse unrated history cross subjects before using subject priority", () => {
+        const mathWithHistory = [3, 2, 1].map((count) => {
+            const id = `math-history-${count}`;
+            return candidate(id, "数学", {
+                events: Array.from({ length: count }, (_, index) => event(`${id}-${index}`, id)),
+            });
+        });
+        const plan = buildTodayPlan(
+            [
+                ...mathWithHistory,
+                candidate("biology-no-history", "生物"),
+                candidate("chinese-no-history", "语文"),
+            ],
+            { todayUnix: TODAY },
+        );
+
+        expect(plan.discretionaryWork.map((item) => item.entityId)).toEqual([
+            "biology-no-history",
+            "chinese-no-history",
+            "math-history-1",
+        ]);
+        expect(mathWithHistory.every(({ events }) => events.every(({ rating }) => !rating))).toBe(
+            true,
+        );
+    });
+
+    test("lets priority tier and entity type cross subjects before subject priority", () => {
+        const plan = buildTodayPlan(
+            [
+                candidate("math-tier-three", "数学", {
+                    entityOverrides: { priority_tier: 3 },
+                }),
+                candidate("chinese-tier-one", "语文", {
+                    entityOverrides: { priority_tier: 1 },
+                }),
+                candidate("math-problem", "数学", {
+                    entityOverrides: { entity_type: "problem_case" },
+                }),
+                candidate("biology-knowledge", "生物"),
+            ],
+            { todayUnix: TODAY, discretionaryLimit: 4 },
+        );
+
+        expect(plan.discretionaryWork.map((item) => item.entityId)).toEqual([
+            "chinese-tier-one",
+            "math-tier-three",
+            "biology-knowledge",
+            "math-problem",
+        ]);
+    });
+
     test("applies the documented latest semantic-rating need signal", () => {
         const ratings: (ReviewRating | undefined)[] = ["easy", "good", undefined, "hard", "again"];
         const plan = buildTodayPlan(
@@ -165,6 +216,29 @@ describe("Task 006 discretionary ranking", () => {
             "unrated",
             "good",
             "easy",
+        ]);
+    });
+
+    test("lets supported review ratings cross subjects before subject priority", () => {
+        const plan = buildTodayPlan(
+            [
+                candidate("math-easy", "数学", {
+                    events: [event("math-easy-event", "math-easy", { rating: "easy" })],
+                }),
+                candidate("biology-hard", "生物", {
+                    events: [event("biology-hard-event", "biology-hard", { rating: "hard" })],
+                }),
+                candidate("chinese-again", "语文", {
+                    events: [event("chinese-again-event", "chinese-again", { rating: "again" })],
+                }),
+            ],
+            { todayUnix: TODAY, discretionaryLimit: 3 },
+        );
+
+        expect(plan.discretionaryWork.map((item) => item.entityId)).toEqual([
+            "chinese-again",
+            "biology-hard",
+            "math-easy",
         ]);
     });
 

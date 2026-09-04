@@ -167,9 +167,6 @@ function compareDiscretionary(
     left: { candidate: TodayPlannerCandidate; item: TodayPlanItem },
     right: { candidate: TodayPlannerCandidate; item: TodayPlanItem },
 ): number {
-    const weightDifference = right.item.subjectWeight - left.item.subjectWeight;
-    if (weightDifference !== 0) return weightDifference;
-
     const needDifference = right.item.needScore - left.item.needScore;
     if (needDifference !== 0) return needDifference;
 
@@ -183,6 +180,9 @@ function compareDiscretionary(
     const typeDifference =
         ENTITY_TYPE_ORDER[left.item.entityType] - ENTITY_TYPE_ORDER[right.item.entityType];
     if (typeDifference !== 0) return typeDifference;
+
+    const weightDifference = right.item.subjectWeight - left.item.subjectWeight;
+    if (weightDifference !== 0) return weightDifference;
 
     const idDifference = left.item.entityId.localeCompare(right.item.entityId, "en");
     if (idDifference !== 0) return idDifference;

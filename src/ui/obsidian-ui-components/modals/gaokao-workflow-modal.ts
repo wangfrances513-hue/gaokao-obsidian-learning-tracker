@@ -5,7 +5,7 @@ import { App, Modal, Setting } from "obsidian";
 
 import { GaokaoFeedback, parseCustomDuration, QUICK_DURATIONS } from "src/gaokao/feedback";
 import { LearningEvent, LearningEventType, MistakeType } from "src/gaokao/learning-event";
-import { GaokaoSubject } from "src/gaokao/schema";
+import { GAOKAO_SUBJECTS, GaokaoSubject } from "src/gaokao/schema";
 import {
     GAOKAO_NOTE_TEMPLATES,
     GaokaoNoteTemplateId,
@@ -30,6 +30,7 @@ export interface GaokaoKnowledgePointChoice {
 export interface GaokaoReviewFeedbackModalOptions {
     notePath: string;
     visibleRating: string;
+    context: "review" | "manual";
 }
 
 export class GaokaoFeedbackModal extends Modal {
@@ -56,10 +57,14 @@ export class GaokaoFeedbackModal extends Modal {
         this.setTitle(`${options.visibleRating}｜补充反馈`);
         this.contentEl.createDiv({
             cls: "gaokao-feedback-help",
-            text: `${options.notePath}\n错因和时长均可跳过；关闭窗口仍会保存本次语义评分。`,
+            text: `${options.notePath}\n${
+                options.context === "review"
+                    ? "错因和时长均可跳过；关闭窗口仍会保存本次语义评分。"
+                    : "错因和时长均可跳过；关闭窗口将取消，不会记录学习事件。"
+            }`,
         });
         this.renderMistakes();
-        this.renderDurations();
+        this.renderDurations(options.context);
     }
 
     private renderMistakes(): void {
@@ -85,11 +90,11 @@ export class GaokaoFeedbackModal extends Modal {
         }
     }
 
-    private renderDurations(): void {
+    private renderDurations(context: "review" | "manual"): void {
         this.contentEl.createEl("h3", { text: "时长（分钟）" });
         const buttonGrid = this.contentEl.createDiv("gaokao-button-grid");
         for (const duration of QUICK_DURATIONS) {
-            const button = buttonGrid.createEl("button", { text: String(duration) });
+            const button = buttonGrid.createEl("button", { text: `记录 ${duration} 分钟` });
             button.addEventListener("click", () => {
                 this.finish({
                     ...(this.mistakeType === undefined ? {} : { mistake_type: this.mistakeType }),
@@ -128,11 +133,15 @@ export class GaokaoFeedbackModal extends Modal {
             );
 
         new Setting(this.contentEl).addButton((button) =>
-            button.setButtonText("跳过时长并记录").onClick(() => {
-                this.finish(
-                    this.mistakeType === undefined ? {} : { mistake_type: this.mistakeType },
-                );
-            }),
+            button
+                .setButtonText(context === "manual" ? "跳过补充并记录" : "跳过时长并记录")
+                .onClick(() => {
+                    this.finish(
+                        context === "manual" || this.mistakeType === undefined
+                            ? {}
+                            : { mistake_type: this.mistakeType },
+                    );
+                }),
         );
     }
 
@@ -208,6 +217,7 @@ export interface GaokaoNoteCreationModalOptions {
 
 export class GaokaoNoteCreationModal extends Modal {
     private templateId: GaokaoNoteTemplateId = "math_concept";
+    private templateSubject: GaokaoSubject | "" = "";
     private title = "";
     private folder = GAOKAO_NOTE_TEMPLATES[0].defaultFolder;
     private gaokaoId = generateGaokaoId(this.templateId);
@@ -231,19 +241,37 @@ export class GaokaoNoteCreationModal extends Modal {
         this.setTitle("创建 GAOKAO 学习笔记");
         this.contentEl.createDiv({
             cls: "gaokao-workflow-help",
-            text: "仅标题必填。稳定 ID 已生成，保存后不会随文件重命名或移动而变化。",
+            text: "仅标题必填。可按学科缩小模板范围；文件夹和稳定 ID 在高级信息中按需调整。",
+        });
+
+        new Setting(this.contentEl).setName("学科筛选").addDropdown((dropdown) => {
+            dropdown.addOption("", "全部学科");
+            for (const subject of GAOKAO_SUBJECTS) dropdown.addOption(subject, subject);
+            dropdown.setValue(this.templateSubject).onChange((value) => {
+                this.templateSubject = value as GaokaoSubject | "";
+                if (
+                    this.templateSubject !== "" &&
+                    this.currentTemplate().subject !== this.templateSubject
+                ) {
+                    const firstMatch = GAOKAO_NOTE_TEMPLATES.find(
+                        (template) => template.subject === this.templateSubject,
+                    );
+                    if (firstMatch !== undefined) this.selectTemplate(firstMatch.id);
+                }
+                this.render();
+            });
         });
 
         new Setting(this.contentEl).setName("模板").addDropdown((dropdown) => {
-            for (const template of GAOKAO_NOTE_TEMPLATES) {
+            const templates = GAOKAO_NOTE_TEMPLATES.filter(
+                (template) =>
+                    this.templateSubject === "" || template.subject === this.templateSubject,
+            );
+            for (const template of templates) {
                 dropdown.addOption(template.id, template.label);
             }
             dropdown.setValue(this.templateId).onChange((value) => {
-                this.templateId = value as GaokaoNoteTemplateId;
-                const template = this.currentTemplate();
-                this.folder = template.defaultFolder;
-                this.gaokaoId = generateGaokaoId(this.templateId);
-                this.knowledgeId = "";
+                this.selectTemplate(value as GaokaoNoteTemplateId);
                 this.render();
             });
         });
@@ -255,14 +283,17 @@ export class GaokaoNoteCreationModal extends Modal {
                 .onChange((value) => (this.title = value)),
         );
 
-        new Setting(this.contentEl)
+        const advanced = this.contentEl.createEl("details");
+        advanced.createEl("summary", { text: "高级信息" });
+
+        new Setting(advanced)
             .setName("文件夹")
             .setDesc("Vault 内相对路径；不会修改全局附件设置。")
             .addText((text) =>
                 text.setValue(this.folder).onChange((value) => (this.folder = value)),
             );
 
-        new Setting(this.contentEl)
+        new Setting(advanced)
             .setName("稳定 ID")
             .setDesc("中性随机 ID；可在创建前修改，之后保持不变。")
             .addText((text) =>
@@ -318,9 +349,9 @@ export class GaokaoNoteCreationModal extends Modal {
                         });
                         this.close();
                     } catch (error: unknown) {
-                        submitSetting.setErrorMessage(
-                            error instanceof Error ? error.message : "创建笔记失败。",
-                        );
+                        const message = error instanceof Error ? error.message : "创建笔记失败。";
+                        if (/文件夹|(?:稳定\s*)?ID|gaokao_id/i.test(message)) advanced.open = true;
+                        submitSetting.setErrorMessage(message);
                         button.setDisabled(false);
                     }
                 }),
@@ -333,6 +364,14 @@ export class GaokaoNoteCreationModal extends Modal {
         );
         if (!template) throw new Error("不支持的 GAOKAO 模板类型。");
         return template;
+    }
+
+    private selectTemplate(templateId: GaokaoNoteTemplateId): void {
+        this.templateId = templateId;
+        const template = this.currentTemplate();
+        this.folder = template.defaultFolder;
+        this.gaokaoId = generateGaokaoId(this.templateId);
+        this.knowledgeId = "";
     }
 
     onClose(): void {

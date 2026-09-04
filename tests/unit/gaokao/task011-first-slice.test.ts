@@ -912,10 +912,22 @@ describe("Task 011 first-slice workflow orchestration", () => {
         findButton("生成确认计划").click();
         await tick();
         const visibleConfirmation = document.body.textContent ?? "";
+        const technicalDetails = document.querySelector("details");
+        if (!(technicalDetails instanceof HTMLDetailsElement)) {
+            throw new Error("missing technical details");
+        }
+        const alwaysVisibleText = [...document.querySelectorAll(".gaokao-workflow-help")]
+            .filter((element) => !technicalDetails.contains(element))
+            .map((element) => element.textContent ?? "")
+            .join("\n");
         findButton("取消").click();
         await capturePromise;
 
         expect(visibleConfirmation).toContain(duplicatePaths[0]);
         expect(visibleConfirmation).toContain(duplicatePaths[1]);
+        expect(technicalDetails.open).toBe(false);
+        expect(technicalDetails.textContent).toContain("SHA-256");
+        expect(alwaysVisibleText).toContain(duplicatePaths[0]);
+        expect(alwaysVisibleText).toContain(duplicatePaths[1]);
     });
 });
