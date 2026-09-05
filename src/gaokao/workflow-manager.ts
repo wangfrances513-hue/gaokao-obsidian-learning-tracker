@@ -55,9 +55,27 @@ interface GaokaoResolvedImageKnowledgePoint {
 }
 
 interface GaokaoImageWorkflowDefinition {
-    readonly templateId: Extract<GaokaoNoteTemplateId, "math_problem" | "biology_problem_answer">;
-    readonly folder: "数学/代表题" | "生物/问题与答案";
+    readonly templateId: Extract<
+        GaokaoNoteTemplateId,
+        | "math_problem"
+        | "biology_problem_answer"
+        | "chemistry_problem_error"
+        | "physics_problem"
+        | "english_reading_error"
+        | "chinese_error"
+    >;
+    readonly folder: string;
 }
+
+const GAOKAO_IMAGE_WORKFLOWS: Readonly<Record<GaokaoImageSubject, GaokaoImageWorkflowDefinition>> =
+    Object.freeze({
+        数学: { templateId: "math_problem", folder: "数学/代表题" },
+        生物: { templateId: "biology_problem_answer", folder: "生物/问题与答案" },
+        化学: { templateId: "chemistry_problem_error", folder: "化学/问题与错题" },
+        物理: { templateId: "physics_problem", folder: "物理/代表题" },
+        英语: { templateId: "english_reading_error", folder: "英语/阅读与错题" },
+        语文: { templateId: "chinese_error", folder: "语文/错题" },
+    });
 
 interface GaokaoImageCapturePlan {
     readonly image: PreparedGaokaoImageEvidence;
@@ -168,7 +186,6 @@ export class GaokaoWorkflowManager {
             const guarded = await this.submissionGuard.run("capture-image-evidence", async () => {
                 const knowledgePoints: GaokaoImageEvidenceKnowledgeChoice[] = [];
                 for (const item of this.plugin.dataManager.getGaokaoKnowledgePoints()) {
-                    if (item.entity.subject !== "数学" && item.entity.subject !== "生物") continue;
                     knowledgePoints.push({
                         id: item.entity.gaokao_id,
                         path: item.path,
@@ -375,13 +392,9 @@ export class GaokaoWorkflowManager {
     }
 
     private getImageWorkflowDefinition(subject: GaokaoImageSubject): GaokaoImageWorkflowDefinition {
-        if (subject === "数学") {
-            return { templateId: "math_problem", folder: "数学/代表题" };
-        }
-        if (subject === "生物") {
-            return { templateId: "biology_problem_answer", folder: "生物/问题与答案" };
-        }
-        throw new Error("图片证据首个实现切片仅支持数学和生物。");
+        const workflow = GAOKAO_IMAGE_WORKFLOWS[subject];
+        if (workflow === undefined) throw new Error("图片证据仅支持六个 GAOKAO 学科。");
+        return workflow;
     }
 
     private assertFolderCanBeEnsured(folderPath: string): void {

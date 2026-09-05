@@ -216,6 +216,7 @@ jest.mock("obsidian", () => {
 });
 
 jest.mock("src/gaokao/image-evidence", () => ({
+    GAOKAO_IMAGE_SUBJECTS: ["数学", "生物", "化学", "物理", "英语", "语文"],
     assertGaokaoImageFolderState: jest.fn(),
     commitPreparedGaokaoImageEvidence: jest.fn(),
     prepareGaokaoImageEvidence: jest.fn(),
@@ -369,7 +370,10 @@ function setupManager() {
     const knowledgePoints: KnowledgeRecord[] = [
         knowledgePoint("math-knowledge-001", "数学"),
         knowledgePoint("biology-knowledge-001", "生物"),
+        knowledgePoint("chemistry-knowledge-001", "化学"),
         knowledgePoint("physics-knowledge-001", "物理"),
+        knowledgePoint("english-knowledge-001", "英语"),
+        knowledgePoint("chinese-knowledge-001", "语文"),
     ];
     const candidateOverrides = new Map<string, string[]>();
     const dataManager = {
@@ -470,18 +474,37 @@ describe("Task 011 first-slice workflow orchestration", () => {
         return capturedOptions;
     }
 
-    test("exposes only Math/Biology canonical choices and rejects unsupported subject", async () => {
+    test("exposes all six subject knowledge points and maps each subject to its problem template", async () => {
         const harness = setupManager();
         const options = await optionsFor(harness);
-        expect(options.knowledgePoints.map((choice) => choice.subject)).toEqual(["数学", "生物"]);
-        await expect(
-            options.onPlan({
+        const workflows = [
+            ["数学", "math-knowledge-001", "数学/代表题", "problem-math"],
+            ["生物", "biology-knowledge-001", "生物/问题与答案", "problem-biology"],
+            ["化学", "chemistry-knowledge-001", "化学/问题与错题", "problem-chemistry"],
+            ["物理", "physics-knowledge-001", "物理/代表题", "problem-physics"],
+            ["英语", "english-knowledge-001", "英语/阅读与错题", "problem-english-reading"],
+            ["语文", "chinese-knowledge-001", "语文/错题", "problem-chinese"],
+        ] as const;
+        expect(options.knowledgePoints.map((choice) => choice.subject)).toEqual(
+            workflows.map(([subject]) => subject),
+        );
+        for (const [subject, knowledgeId, folder, idPrefix] of workflows) {
+            const planned = await options.onPlan({
                 file: fakeSelectedFile(),
-                subject: "物理" as never,
-                title: "不支持",
-                knowledgeId: "physics-knowledge-001",
-            }),
-        ).rejects.toThrow(/仅支持数学和生物/);
+                subject,
+                title: `${subject}图片题`,
+                knowledgeId,
+            });
+            const plan = planned.plan as FrozenCapturePlan;
+            expect(plan.notePath).toBe(`${folder}/${subject}图片题.md`);
+            expect(plan.gaokaoId).toBe(`${idPrefix}-123e4567e89b`);
+            expect(plan.frontmatter).toMatchObject({
+                entity_type: "problem_case",
+                subject,
+                knowledge_ids: [knowledgeId],
+                source: "image_capture",
+            });
+        }
         expect(harness.vault.create).not.toHaveBeenCalled();
     });
 
@@ -855,6 +878,56 @@ describe("Task 011 first-slice workflow orchestration", () => {
         expect(noticeMock).toHaveBeenCalledWith(expect.stringMatching(/另一条图片证据捕获/), 10000);
         resolveCapture?.("cancelled");
         await first;
+    });
+
+    test("renders all six subjects and filters knowledge choices to the selected subject", async () => {
+        captureSpy.mockRestore();
+        const knowledgePoints: GaokaoImageEvidenceKnowledgeChoice[] = [
+            { id: "math-knowledge-001", path: "数学/知识点/函数.md", subject: "数学" },
+            { id: "biology-knowledge-001", path: "生物/概念与机制/呼吸.md", subject: "生物" },
+            { id: "chemistry-knowledge-001", path: "化学/知识/离子.md", subject: "化学" },
+            { id: "physics-knowledge-001", path: "物理/模型/动量.md", subject: "物理" },
+            { id: "english-knowledge-001", path: "英语/表达/非谓语.md", subject: "英语" },
+            { id: "chinese-knowledge-001", path: "语文/阅读/论证.md", subject: "语文" },
+        ];
+        const capturePromise = GaokaoImageEvidenceModal.capture({} as never, {
+            knowledgePoints,
+            onPlan: async () => {
+                throw new Error("not reached");
+            },
+            onCommit: async () => undefined,
+        });
+        const selects = document.querySelectorAll("select");
+        const subjectSelect = selects[0];
+        const knowledgeSelect = selects[1];
+        if (!(subjectSelect instanceof HTMLSelectElement)) {
+            throw new Error("missing subject select");
+        }
+        if (!(knowledgeSelect instanceof HTMLSelectElement)) {
+            throw new Error("missing knowledge select");
+        }
+        expect([...subjectSelect.options].map((option) => option.value)).toEqual([
+            "数学",
+            "生物",
+            "化学",
+            "物理",
+            "英语",
+            "语文",
+        ]);
+        expect([...knowledgeSelect.options].map((option) => option.value)).toEqual([
+            "",
+            "math-knowledge-001",
+        ]);
+
+        subjectSelect.value = "化学";
+        subjectSelect.dispatchEvent(new Event("change"));
+        expect([...knowledgeSelect.options].map((option) => option.value)).toEqual([
+            "",
+            "chemistry-knowledge-001",
+        ]);
+
+        findButton("取消").click();
+        await capturePromise;
     });
 
     test("visibly discloses multiple exact duplicate paths in final confirmation", async () => {

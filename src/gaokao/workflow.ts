@@ -1,6 +1,7 @@
 /* eslint-disable camelcase -- Generated GAOKAO/YAML field names are snake_case by contract. */
 
 import {
+    GAOKAO_SUBJECTS,
     GaokaoEntity,
     GaokaoSubject,
     GaokaoWorkflowKind,
@@ -468,7 +469,7 @@ function validateImageBodyEvidence(
         segments.length !== 6 ||
         segments[0] !== "资源" ||
         segments[1] !== "图片" ||
-        (segments[2] !== "数学" && segments[2] !== "生物") ||
+        !GAOKAO_SUBJECTS.some((subject) => subject === segments[2]) ||
         !/^\d{4}$/.test(segments[3]) ||
         !/^(0[1-9]|1[0-2])$/.test(segments[4]) ||
         segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")

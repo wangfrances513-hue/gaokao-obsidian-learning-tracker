@@ -8,6 +8,8 @@ import {
     commitPreparedGaokaoImageEvidence,
     detectGaokaoImageKind,
     GAOKAO_IMAGE_MAX_BYTES,
+    GAOKAO_IMAGE_SUBJECTS,
+    isCanonicalGaokaoImagePath,
     prepareGaokaoImageEvidence,
     rollbackGaokaoImageAttachment,
 } from "src/gaokao/image-evidence";
@@ -301,30 +303,21 @@ describe("Task 011 image input, signatures, hashing, and paths", () => {
         ).rejects.toThrow(/有效的本机捕获日期/);
     });
 
-    test("constructs controlled Math and Biology paths", () => {
+    test.each(GAOKAO_IMAGE_SUBJECTS)("constructs a controlled %s path", (subject) => {
         const hash = "a".repeat(64);
-        expect(
-            buildGaokaoImageCanonicalPath({
-                subject: "数学",
-                year: "2026",
-                month: "08",
-                sha256: hash,
-                extension: "jpg",
-            }),
-        ).toBe(`资源/图片/数学/2026/08/${hash}.jpg`);
-        expect(
-            buildGaokaoImageCanonicalPath({
-                subject: "生物",
-                year: "2026",
-                month: "08",
-                sha256: hash,
-                extension: "png",
-            }),
-        ).toBe(`资源/图片/生物/2026/08/${hash}.png`);
+        const path = buildGaokaoImageCanonicalPath({
+            subject,
+            year: "2026",
+            month: "08",
+            sha256: hash,
+            extension: "jpg",
+        });
+        expect(path).toBe(`资源/图片/${subject}/2026/08/${hash}.jpg`);
+        expect(isCanonicalGaokaoImagePath(path, hash, "jpg")).toBe(true);
     });
 
     test.each([
-        { subject: "物理", year: "2026", month: "08", sha256: "a".repeat(64), extension: "jpg" },
+        { subject: "历史", year: "2026", month: "08", sha256: "a".repeat(64), extension: "jpg" },
         { subject: "数学", year: "26", month: "08", sha256: "a".repeat(64), extension: "jpg" },
         { subject: "数学", year: "2026", month: "13", sha256: "a".repeat(64), extension: "jpg" },
         { subject: "数学", year: "2026", month: "08", sha256: "A".repeat(64), extension: "jpg" },

@@ -198,6 +198,16 @@ describe("Task 011 image evidence body extension", () => {
     const mathPath = `资源/图片/数学/2026/08/${sha256}.jpg`;
     const biologyPath = `资源/图片/生物/2026/08/${sha256}.png`;
 
+    test.each(["数学", "生物", "化学", "物理", "英语", "语文"])(
+        "accepts the managed image path for %s",
+        (subject) => {
+            expect(
+                createGaokaoImageBodyEvidence(`资源/图片/${subject}/2026/08/${sha256}.jpg`, sha256)
+                    .attachmentPath,
+            ).toBe(`资源/图片/${subject}/2026/08/${sha256}.jpg`);
+        },
+    );
+
     test("preserves the established output and final newline without bodyEvidence", () => {
         const note = buildGaokaoNote({
             templateId: "math_problem",
@@ -310,7 +320,7 @@ describe("Task 011 image evidence body extension", () => {
         `资源/图片/数学/2026/08/${sha256}.jpg|别名`,
         `资源/图片/数学/2026/08/${sha256}:jpg`,
         `附件/数学/2026/08/${sha256}.jpg`,
-        `资源/图片/物理/2026/08/${sha256}.jpg`,
+        `资源/图片/历史/2026/08/${sha256}.jpg`,
     ])("rejects unsafe or unsupported evidence path %s", (attachmentPath) => {
         expect(() => createGaokaoImageBodyEvidence(attachmentPath, sha256)).toThrow();
     });

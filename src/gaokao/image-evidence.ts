@@ -11,7 +11,8 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const YEAR_PATTERN = /^\d{4}$/;
 const MONTH_PATTERN = /^(0[1-9]|1[0-2])$/;
 
-export type GaokaoImageSubject = Extract<GaokaoSubject, "数学" | "生物">;
+export const GAOKAO_IMAGE_SUBJECTS = ["数学", "生物", "化学", "物理", "英语", "语文"] as const;
+export type GaokaoImageSubject = GaokaoSubject;
 export type GaokaoImageKind = "jpeg" | "png";
 export type GaokaoImageExtension = "jpg" | "png";
 export type GaokaoImageAttachmentDisposition =
@@ -130,8 +131,8 @@ export function buildGaokaoImageCanonicalPath(input: {
     sha256: string;
     extension: GaokaoImageExtension;
 }): string {
-    if (input.subject !== "数学" && input.subject !== "生物") {
-        throw new Error("图片证据首个实现切片仅支持数学和生物。");
+    if (!GAOKAO_IMAGE_SUBJECTS.some((subject) => subject === input.subject)) {
+        throw new Error("图片证据仅支持六个 GAOKAO 学科。");
     }
     assertSafePathSegment(input.subject, "科目");
     if (!YEAR_PATTERN.test(input.year)) throw new Error("图片年份不是四位数字。");
@@ -152,8 +153,9 @@ export function isCanonicalGaokaoImagePath(
 ): boolean {
     if (!SHA256_PATTERN.test(sha256)) return false;
     const escapedRoot = GAOKAO_IMAGE_MANAGED_ROOT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const subjectPattern = GAOKAO_IMAGE_SUBJECTS.join("|");
     const pattern = new RegExp(
-        `^${escapedRoot}/(数学|生物)/\\d{4}/(0[1-9]|1[0-2])/${sha256}\\.${extension}$`,
+        `^${escapedRoot}/(${subjectPattern})/\\d{4}/(0[1-9]|1[0-2])/${sha256}\\.${extension}$`,
     );
     return pattern.test(path);
 }

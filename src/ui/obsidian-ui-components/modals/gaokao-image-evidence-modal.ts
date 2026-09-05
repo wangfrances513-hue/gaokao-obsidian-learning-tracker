@@ -1,6 +1,10 @@
 import { App, Modal, Setting } from "obsidian";
 
-import { GaokaoImageAttachmentDisposition, GaokaoImageSubject } from "src/gaokao/image-evidence";
+import {
+    GAOKAO_IMAGE_SUBJECTS,
+    GaokaoImageAttachmentDisposition,
+    GaokaoImageSubject,
+} from "src/gaokao/image-evidence";
 
 export interface GaokaoImageEvidenceKnowledgeChoice {
     readonly id: string;
@@ -145,10 +149,9 @@ export class GaokaoImageEvidenceModal<TPlan> extends Modal {
         };
 
         new Setting(this.contentEl).setName("科目").addDropdown((dropdown) => {
-            dropdown.addOption("数学", "数学");
-            dropdown.addOption("生物", "生物");
+            for (const subject of GAOKAO_IMAGE_SUBJECTS) dropdown.addOption(subject, subject);
             dropdown.setValue(this.subject).onChange((value) => {
-                this.subject = value === "生物" ? "生物" : "数学";
+                this.subject = GAOKAO_IMAGE_SUBJECTS.find((subject) => subject === value) ?? "数学";
                 rebuildKnowledgeOptions();
             });
         });
