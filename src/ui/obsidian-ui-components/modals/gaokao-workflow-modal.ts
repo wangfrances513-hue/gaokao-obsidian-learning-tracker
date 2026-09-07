@@ -4,7 +4,8 @@ import "src/ui/obsidian-ui-components/modals/gaokao-workflow-modal.css";
 import { App, Modal, Setting } from "obsidian";
 
 import { GaokaoFeedback, parseCustomDuration, QUICK_DURATIONS } from "src/gaokao/feedback";
-import { LearningEvent, LearningEventType, MistakeType } from "src/gaokao/learning-event";
+import { LearningEvent, LearningEventType, MistakeType, ReviewRating } from "src/gaokao/learning-event";
+import { RoundCompletionInput, RoundState, completionIssue } from "src/gaokao/review-flow";
 import { GAOKAO_SUBJECTS, GaokaoSubject } from "src/gaokao/schema";
 import {
     GAOKAO_NOTE_TEMPLATES,
@@ -20,6 +21,146 @@ const MISTAKE_DESCRIPTIONS: readonly [MistakeType, string][] = [
     ["C", "审题理解｜条件理解、信息提取、题意转换错误"],
     ["R", "提取｜学过，但无法稳定或及时调用"],
 ];
+
+export class GaokaoRoundChoiceModal extends Modal {
+    private settled = false;
+    private resolveChoice: (choice: string | null) => void = () => undefined;
+    private readonly result: Promise<string | null>;
+
+    static choose(app: App, title: string, detail: string, choices: readonly [string, string][]): Promise<string | null> {
+        const modal = new GaokaoRoundChoiceModal(app, title, detail, choices);
+        modal.open();
+        return modal.result;
+    }
+
+    private constructor(app: App, title: string, detail: string, choices: readonly [string, string][]) {
+        super(app);
+        this.result = new Promise((resolve) => { this.resolveChoice = resolve; });
+        this.setTitle(title);
+        this.contentEl.createEl("p", { text: detail });
+        for (const [value, label] of choices) new Setting(this.contentEl).addButton((button) => {
+            button.setButtonText(label).onClick(() => {
+                if (this.settled) return;
+                this.settled = true; this.resolveChoice(value); this.close();
+            });
+        });
+        new Setting(this.contentEl).addButton((button) => button.setButtonText("取消").onClick(() => this.close()));
+    }
+
+    onClose(): void {
+        if (!this.settled) { this.settled = true; this.resolveChoice(null); }
+        this.contentEl.empty();
+    }
+}
+
+export interface GaokaoRoundResultOptions {
+    entityId: string;
+    title: string;
+    subject: string;
+    state: RoundState;
+    history: readonly LearningEvent[];
+    userRating?: ReviewRating;
+    sourceSummary?: string;
+    practiceHint?: string;
+    expectedPath: string;
+    expectedSourceText?: string;
+    onSubmit: (input: RoundCompletionInput) => Promise<void>;
+}
+
+/** Closing this modal never submits, including when rating is absent. */
+export class GaokaoRoundResultModal extends Modal {
+    private readonly input: RoundCompletionInput;
+    private evidenceRef = "";
+    private performedAt = "";
+    private mode: "mixed" | "isolated" | undefined;
+    private duration = "";
+    private submitting = false;
+
+    constructor(app: App, private readonly options: GaokaoRoundResultOptions) {
+        super(app);
+        this.input = { entityId: options.entityId, expectedCycleRef: options.state.cycleRef,
+            expectedPath: options.expectedPath, expectedSubject: options.subject, expectedSourceText: options.expectedSourceText,
+            userRating: options.userRating, actionConfirmed: false,
+            presentationConfirmed: options.state.round === "R2" || options.state.round === "R3" };
+        this.modalEl.addClass("gaokao-workflow-modal");
+        this.setTitle(`${options.state.round}｜完成本轮`);
+        this.contentEl.createEl("p", { text: `${options.title} · ${options.subject}\n${options.entityId}` });
+        this.contentEl.createEl("p", { text: "完成表示记录真实行动；无评分不表示答对，进入 R5 不表示通过考试。提交前取消或关闭不记录；提交后请等待核对结果。" });
+        this.confirm("已完成本轮真实行动（真实失败也可记录）", "actionConfirmed");
+        if (options.state.round === "R1") {
+            this.contentEl.createEl("p", { text: options.sourceSummary ?? "先确认已落地的来源材料。" });
+            this.confirm("确认显示的学科与准确目标 Entity", "subjectConfirmed");
+            this.confirm("材料可读，Source、Prompt 或原图已关联到此 Entity", "sourceConfirmed");
+            this.confirm("有图时收件原件已保留，未删除、改名或移动（无图也可确认）", "originalRetained");
+        }
+        new Setting(this.contentEl).setName("可选评分").addDropdown((dropdown) => {
+            dropdown.addOption("", "未选择评分");
+            for (const rating of ["again", "hard", "good", "easy"]) dropdown.addOption(rating, rating[0].toUpperCase() + rating.slice(1));
+            dropdown.setValue(options.userRating ?? "").onChange((value) => {
+                this.input.userRating = value === "" ? undefined : value as ReviewRating;
+            });
+        });
+        if (options.state.round === "R4" || options.state.round === "R5") {
+            if (options.state.round === "R4" && options.practiceHint) this.contentEl.createEl("p", { text: `已有关联候选位置（请核对是否为陌生同构题）：${options.practiceHint}` });
+            this.contentEl.createEl("p", { text: options.state.round === "R4"
+                ? "从现有教材、教辅或真题选陌生同构题；请填真实题目与作答位置。"
+                : "请按实际作答环境选择。看过对应模型提示后作答，不能记为无提示 Mixed。" });
+            new Setting(this.contentEl).setName("真实题/卷及作答位置").addText((text) => text.onChange((value) => { this.evidenceRef = value; }));
+            new Setting(this.contentEl).setName("实际发生时间").setDesc("补录填写实际完成时间，含时区；不能用上轮活动。")
+                .addText((text) => {
+                    text.setPlaceholder("YYYY-MM-DDTHH:mm:ss+08:00").onChange((value) => { this.performedAt = value; });
+                    new Setting(this.contentEl).addButton((button) => button.setButtonText("我刚刚完成").onClick(() => {
+                        this.performedAt = new Date().toISOString(); text.setValue(this.performedAt);
+                    }));
+                });
+            this.confirm("这次活动发生在本周期，尚未记入插件，也未用于该 Entity 的其他轮次", "unregisteredActivityConfirmed");
+        }
+        if (options.state.round === "R5") {
+            this.confirm("已经实际作答并核对结果", "resultChecked");
+            let resetSpeed: () => void = () => undefined;
+            new Setting(this.contentEl).setName("实际验证模式").addDropdown((dropdown) => {
+                dropdown.addOption("", "请选择实际环境").addOption("mixed", "Mixed · 现实混合考试").addOption("isolated", "Isolated · 专项验证")
+                    .onChange((value) => { this.mode = value === "" ? undefined : value as "mixed" | "isolated";
+                        this.input.speedVerification = false; this.duration = ""; resetSpeed();
+                        mixed.hidden = this.mode !== "mixed"; isolated.hidden = this.mode !== "isolated"; duration.hidden = true;
+                    });
+            });
+            const mixed = this.contentEl.createDiv(); mixed.hidden = true;
+            const isolated = this.contentEl.createDiv(); isolated.hidden = true;
+            this.confirm("Mixed：作答前未获得本题对应模型提示；可在现实考试后才关联", "noModelHint", mixed);
+            this.confirm("Mixed：使用了现实考试/整卷限时，全卷时长不分摊给此 Entity", "fullPaperLimitConfirmed", mixed);
+            this.confirm("Isolated：本次实际属于高难、长推导或明确专项验证", "isolatedConfirmed", isolated);
+            const duration = isolated.createDiv(); duration.hidden = true;
+            new Setting(isolated).setName("本次明确验证单题速度").addToggle((toggle) => {
+                resetSpeed = () => { toggle.setValue(false); return undefined; };
+                toggle.setValue(false).onChange((value) => { this.input.speedVerification = value; duration.hidden = !value; });
+            });
+            new Setting(duration).setName("事后单题用时（分钟，可不填）").addText((text) => text.onChange((value) => { this.duration = value; }));
+        }
+        const submit = new Setting(this.contentEl);
+        submit.addButton((button) => button.setButtonText("完成本轮").setCta().onClick(async () => {
+            if (this.submitting) return;
+            this.input.evidence = options.state.round === "R4" || options.state.round === "R5"
+                ? { ref: this.evidenceRef.trim(), performed_at: this.performedAt.trim(), ...(this.mode ? { mode: this.mode } : {}) } : undefined;
+            this.input.durationMinutes = this.mode === "isolated" && this.input.speedVerification && this.duration.trim()
+                ? Number(this.duration) : undefined;
+            const issue = completionIssue(this.input, options.state, options.history, new Date().toISOString());
+            if (issue) { submit.setErrorMessage(issue); return; }
+            this.submitting = true; button.setDisabled(true);
+            try { await options.onSubmit({ ...this.input }); this.close(); }
+            catch (error: unknown) { submit.setErrorMessage(error instanceof Error ? error.message : "提交未确认。"); }
+            finally { this.submitting = false; button.setDisabled(false); }
+        }));
+        new Setting(this.contentEl).addButton((button) => button.setButtonText("取消").onClick(() => this.close()));
+    }
+
+    private confirm(label: string, key: "actionConfirmed" | "sourceConfirmed" | "subjectConfirmed" | "originalRetained" |
+        "resultChecked" | "noModelHint" | "fullPaperLimitConfirmed" | "isolatedConfirmed" | "unregisteredActivityConfirmed", parent: HTMLElement = this.contentEl): void {
+        new Setting(parent).setName(label).addToggle((toggle) => toggle.setValue(false).onChange((value) => { this.input[key] = value; }));
+    }
+
+    onClose(): void { this.contentEl.empty(); }
+}
 
 export interface GaokaoKnowledgePointChoice {
     id: string;

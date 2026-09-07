@@ -126,10 +126,7 @@ describe("Task 007 disposable Vault integration", () => {
         let persistCount = 0;
         const manager = new GaokaoManager({
             getData: () => data,
-            persist: () => {
-                persistCount++;
-                return Promise.resolve();
-            },
+            transact: async (operation) => await operation({ data, save: async (next) => { Object.assign(data, next); persistCount++; } }),
         });
         manager.rebuildIndex(readSources(vaultRoot));
 
@@ -173,10 +170,7 @@ describe("Task 007 disposable Vault integration", () => {
 
         const reloadedManager = new GaokaoManager({
             getData: () => data,
-            persist: () => {
-                persistCount++;
-                return Promise.resolve();
-            },
+            transact: async (operation) => await operation({ data, save: async (next) => { Object.assign(data, next); persistCount++; } }),
         });
         reloadedManager.rebuildIndex(readSources(vaultRoot));
         expect(reloadedManager.inspect(movedPath).entity?.gaokao_id).toBe(

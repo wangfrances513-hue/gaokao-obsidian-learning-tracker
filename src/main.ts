@@ -1,4 +1,4 @@
-import { Plugin, TFile } from "obsidian";
+import { Notice, Plugin, TFile } from "obsidian";
 
 import { CommandManager } from "src/command-manager";
 import { DataManager } from "src/data/data-manager";
@@ -59,6 +59,10 @@ export default class SRPlugin extends Plugin {
             const uiManager = new UIManager(this, settingsManager);
             this.uiManager = uiManager;
             const gaokaoWorkflowManager = new GaokaoWorkflowManager(this);
+            this.dataManager.setRoundEntry(
+                async (id, rating) => await gaokaoWorkflowManager.openRoundEntry(id, rating),
+                async (target, input) => await gaokaoWorkflowManager.validateRoundAction(target, input),
+            );
             this._gaokaoTodayManager = new GaokaoTodayManager(this);
             this.dataManager.setGaokaoReviewFeedbackProvider(
                 async (request) => await gaokaoWorkflowManager.captureReviewFeedback(request),
@@ -85,6 +89,7 @@ export default class SRPlugin extends Plugin {
                     this.app,
                     settingsManager.settings,
                     noteReviewQueue,
+                    async (file) => await gaokaoWorkflowManager.routeReviewNavigation(file),
                 );
 
                 await this.dataManager.initOSRCore(noteReviewQueue, async () => {
@@ -96,6 +101,11 @@ export default class SRPlugin extends Plugin {
                 this._reminderManager = new ReminderManager(this, this.uiManager, this.dataManager);
 
                 this.isInitialized = true;
+                if (this.dataManager.data.gaokao.pendingRoundCommit) {
+                    const recovery = await this.dataManager.inspectRoundRecovery();
+                    new Notice(`GAOKAO 未确认提交：${recovery.issue}`, 10000);
+                    this.refreshGaokaoToday();
+                }
                 this._reminderManager.restartReviewReminders();
             });
         } catch (error) {
@@ -157,6 +167,8 @@ export default class SRPlugin extends Plugin {
     isDataManagerLoaded(): boolean {
         return this._dataManager !== null;
     }
+
+    refreshGaokaoToday(): void { this._gaokaoTodayManager?.redraw(); }
 
     onunload(): void {
         this.reminderManager.stopReviewReminders();

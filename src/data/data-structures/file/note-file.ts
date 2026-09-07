@@ -3,6 +3,8 @@ import { FileManager, HeadingCache, MetadataCache, TFile, Vault } from "obsidian
 
 import { ALLOWED_DATE_FORMATS, PREFERRED_DATE_FORMAT } from "src/data/constants";
 import { ISRFile, SRTFile } from "src/data/data-structures/file/sr-file";
+import { isRoundScheduleReceipt, RoundScheduleReceipt } from "src/gaokao/learning-event";
+import { sameRoundData } from "src/gaokao/review-flow";
 import { RepItemScheduleInfo } from "src/scheduling/algorithms/base/rep-item-schedule-info";
 import { RepItemScheduleInfoOsr } from "src/scheduling/algorithms/osr/rep-item-schedule-info-osr";
 import { formatDate } from "src/utils/dates";
@@ -75,6 +77,28 @@ export class SRNoteTFile extends SRTFile implements ISRNoteTFile {
         });
     }
 
+    async readPersistentSchedule(): Promise<RoundScheduleReceipt | null> {
+        return readRoundScheduleFrontmatter((await this.readPersistentMetadata()).frontmatter);
+    }
+
+    /** Same scheduler-owned frontmatter path, with compare-before-write inside its callback. */
+    async compareAndSetRoundSchedule(
+        entityId: string, expected: RoundScheduleReceipt | null, after: RoundScheduleReceipt,
+        assertIdentity: (frontmatter: Record<string, unknown>) => void,
+    ): Promise<void> {
+        if (!isRoundScheduleReceipt(after)) throw new Error("候选排期无效。");
+        await this.fileManager.processFrontMatter(this.tfile, (frontmatter: Record<string, unknown>) => {
+            assertIdentity(frontmatter);
+            if (frontmatter.gaokao_id !== entityId) throw new Error("写入当下 gaokao_id 不符。");
+            if (!sameRoundData(readRoundScheduleFrontmatter(frontmatter), expected)) {
+                throw new Error("写入当下 sr-* 已发生变化；未覆盖。");
+            }
+            frontmatter["sr-due"] = after.due;
+            frontmatter["sr-interval"] = after.interval;
+            frontmatter["sr-ease"] = after.ease;
+        });
+    }
+
     /**
      * Gets the note ID from the frontmatter.
      *
@@ -130,4 +154,28 @@ export class SRNoteTFile extends SRTFile implements ISRNoteTFile {
         }
         return result;
     }
+}
+
+export function readRoundScheduleFrontmatter(frontmatter: Record<string, unknown>): RoundScheduleReceipt | null {
+    const keys = ["sr-due", "sr-interval", "sr-ease"];
+    const count = keys.filter((key) => Object.prototype.hasOwnProperty.call(frontmatter, key)).length;
+    if (count === 0) return null;
+    if (count !== 3) throw new Error("sr-* 字段不完整，不能当作未排期。");
+    const rawDue = frontmatter["sr-due"];
+    const due = rawDue instanceof Date ? moment(rawDue) : moment(String(rawDue), ALLOWED_DATE_FORMATS, true);
+    const numeric = (value: unknown): number =>
+        typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    const receipt = { due: due.format(PREFERRED_DATE_FORMAT), interval: numeric(frontmatter["sr-interval"]), ease: numeric(frontmatter["sr-ease"]) };
+    if (!due.isValid() || !isRoundScheduleReceipt(receipt)) throw new Error("sr-* 内容损坏，不能当作未排期。");
+    return receipt;
+}
+
+export function scheduleFromReceipt(receipt: RoundScheduleReceipt | null): RepItemScheduleInfoOsr | null {
+    return receipt === null ? null : RepItemScheduleInfoOsr.fromDueDateStr(receipt.due, receipt.interval, receipt.ease);
+}
+
+export function receiptFromSchedule(schedule: RepItemScheduleInfo): RoundScheduleReceipt {
+    const receipt = { due: formatDate(schedule.dueDateAsUnix, PREFERRED_DATE_FORMAT), interval: schedule.interval, ease: schedule.latestEase };
+    if (!isRoundScheduleReceipt(receipt)) throw new Error("原 scheduler 未返回有效整笔排期。");
+    return receipt;
 }

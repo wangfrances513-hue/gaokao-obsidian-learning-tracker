@@ -5,8 +5,6 @@ import { LearningEvent, ReviewRating } from "src/gaokao/learning-event";
 import { GaokaoEntity, GaokaoSubject } from "src/gaokao/schema";
 import {
     buildTodayPlan,
-    DEFAULT_ESTIMATED_DURATION_MINUTES,
-    estimateDuration,
     SUBJECT_PRIORITY_WEIGHTS,
     TodayPlannerCandidate,
 } from "src/gaokao/today-planner";
@@ -283,41 +281,15 @@ describe("Task 006 discretionary ranking", () => {
     });
 });
 
-describe("Task 006 duration estimates", () => {
-    test("uses the median of the five most recent valid observations", () => {
-        const events = [100, 5, 10, 15, 20, 30].map((duration, index) =>
-            event(`duration-${index}`, "math", { duration }),
-        );
-        expect(estimateDuration(events)).toEqual({
-            minutes: 15,
-            source: "history",
-            observationCount: 5,
-        });
-    });
-
-    test("uses an explicit fallback when no duration history exists", () => {
-        expect(estimateDuration([])).toEqual({
-            minutes: DEFAULT_ESTIMATED_DURATION_MINUTES,
-            source: "fallback",
-            observationCount: 0,
-        });
-    });
-
-    test("ignores invalid duration values without mutating history", () => {
-        const events = [
-            event("valid-a", "math", { duration: 10 }),
-            event("invalid-negative", "math", { duration: -1 }),
-            event("invalid-nan", "math", { duration: Number.NaN }),
-            event("invalid-infinite", "math", { duration: Number.POSITIVE_INFINITY }),
-            event("valid-b", "math", { duration: 30 }),
-        ];
-        const before = events.map((item) => ({ ...item }));
-        expect(estimateDuration(events)).toEqual({
-            minutes: 20,
-            source: "history",
-            observationCount: 2,
-        });
-        expect(events).toEqual(before);
+describe("v0.2 T27 Today has no time projection", () => {
+    test("retains legacy duration history without deriving a time estimate", () => {
+        const item = candidate("timeless", "数学");
+        item.events = [event("legacy-duration", "timeless", { duration: 30 })];
+        const before = JSON.stringify(item.events);
+        const plan = buildTodayPlan([item], { todayUnix: TODAY });
+        expect(plan.discretionaryWork[0]).not.toHaveProperty("durationEstimate");
+        expect(plan.discretionaryWork[0]).toMatchObject({ round: "R1", needLabel: "unrated" });
+        expect(JSON.stringify(item.events)).toBe(before);
     });
 });
 
@@ -425,4 +397,20 @@ describe("Task 006 empty states", () => {
         expect(plan.remainingDueBacklog).toEqual([]);
         expect(plan.discretionaryWork).toEqual([]);
     });
+});
+test("v0.2 T16 a missing schedule in an existing flow cannot become a recommendation", () => {
+    const item = candidate("flow-missing", "数学");
+    item.events = [{ event_id: "r1", entity_id: "flow-missing", event_type: "study", timestamp: "2026-09-01T00:00:00Z",
+        cycle_ref: null, schedule_after: { due: "2026-09-02", interval: 1, ease: 250 } }];
+    const plan = buildTodayPlan([item], { todayUnix: TODAY });
+    expect(plan.discretionaryWork).toEqual([]);
+    expect(plan.unavailableScheduleCount).toBe(1);
+});
+
+test("v0.2 T16 unknown/invalid schedule never becomes none", () => {
+    const unavailable = { ...candidate("unavailable"), schedule: { kind: "unavailable" as const } };
+    const invalid = { ...candidate("invalid"), schedule: { kind: "invalid" as const } };
+    const plan = buildTodayPlan([unavailable, invalid], { todayUnix: TODAY });
+    expect(plan.discretionaryWork).toEqual([]);
+    expect(plan.unavailableScheduleCount).toBe(2);
 });

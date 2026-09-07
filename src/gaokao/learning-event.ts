@@ -11,7 +11,26 @@ export type ReviewRating = (typeof REVIEW_RATINGS)[number];
 export const MISTAKE_TYPES = ["K", "M", "P", "C", "R"] as const;
 export type MistakeType = (typeof MISTAKE_TYPES)[number];
 
-export interface LearningEvent {
+/** A receipt from the existing whole-note store, never a second scheduler. */
+export interface RoundScheduleReceipt {
+    due: string;
+    interval: number;
+    ease: number;
+}
+
+export interface RoundEvidence {
+    ref: string;
+    performed_at: string;
+    mode?: "mixed" | "isolated";
+}
+
+export interface RoundEventContext {
+    cycle_ref?: string | null;
+    schedule_after?: RoundScheduleReceipt;
+    evidence?: RoundEvidence;
+}
+
+export interface LearningEvent extends RoundEventContext {
     event_id: string;
     timestamp: string;
     entity_id: string;
@@ -22,7 +41,7 @@ export interface LearningEvent {
     source_path?: string;
 }
 
-export interface LearningEventInput {
+export interface LearningEventInput extends RoundEventContext {
     entity_id: string;
     event_type: LearningEventType;
     rating?: ReviewRating;
@@ -87,7 +106,39 @@ export function validateLearningEventInput(
     ) {
         issues.push({ code: "invalid_source_path", message: "source_path must be non-empty." });
     }
+    if (Object.prototype.hasOwnProperty.call(input, "cycle_ref")) {
+        if (input.cycle_ref !== null &&
+            (typeof input.cycle_ref !== "string" || !input.cycle_ref.trim())) {
+            issues.push({ code: "invalid_cycle_ref", message: "流程前驱必须是 event_id 或 null。" });
+        }
+        if (!isRoundScheduleReceipt(input.schedule_after)) {
+            issues.push({ code: "invalid_schedule_after", message: "流程事件必须包含有效排期收据。" });
+        }
+    }
+    if (input.evidence !== undefined && !isRoundEvidence(input.evidence)) {
+        issues.push({ code: "invalid_evidence", message: "现实证据的位置、发生时间或模式无效。" });
+    }
     return issues;
+}
+
+export function isRoundScheduleReceipt(value: unknown): value is RoundScheduleReceipt {
+    if (!value || typeof value !== "object") return false;
+    const item = value as RoundScheduleReceipt;
+    return typeof item.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.due) &&
+        Number.isFinite(Date.parse(`${item.due}T00:00:00Z`)) &&
+        new Date(`${item.due}T00:00:00Z`).toISOString().slice(0, 10) === item.due &&
+        typeof item.interval === "number" && Number.isFinite(item.interval) && item.interval >= 0 &&
+        typeof item.ease === "number" && Number.isFinite(item.ease) && item.ease > 0;
+}
+
+export function isRoundEvidence(value: unknown): value is RoundEvidence {
+    if (!value || typeof value !== "object") return false;
+    const item = value as RoundEvidence;
+    return typeof item.ref === "string" && item.ref.trim().length > 0 &&
+        typeof item.performed_at === "string" &&
+        /(?:Z|[+-]\d{2}:\d{2})$/.test(item.performed_at) &&
+        Number.isFinite(Date.parse(item.performed_at)) &&
+        (item.mode === undefined || item.mode === "mixed" || item.mode === "isolated");
 }
 
 export function createLearningEvent(
@@ -136,6 +187,10 @@ export function createLearningEvent(
                 ? {}
                 : { duration_minutes: input.duration_minutes }),
             ...(input.source_path === undefined ? {} : { source_path: input.source_path }),
+            ...(Object.prototype.hasOwnProperty.call(input, "cycle_ref")
+                ? { cycle_ref: input.cycle_ref } : {}),
+            ...(input.schedule_after === undefined ? {} : { schedule_after: { ...input.schedule_after } }),
+            ...(input.evidence === undefined ? {} : { evidence: { ...input.evidence } }),
         },
     };
 }

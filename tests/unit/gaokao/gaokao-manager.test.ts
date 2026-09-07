@@ -10,10 +10,9 @@ function createHarness() {
     let sequence = 0;
     const manager = new GaokaoManager({
         getData: () => data,
-        persist: () => {
-            persisted.push(JSON.stringify(data));
-            return Promise.resolve();
-        },
+        transact: async (operation) => await operation({ data, save: async (next) => {
+            Object.assign(data, next); persisted.push(JSON.stringify(data));
+        } }),
         eventFactory: {
             createId: () => `00000000-0000-4000-8000-${String(sequence++).padStart(12, "0")}`,
             now: () => new Date("2026-08-08T06:23:16.000Z"),
@@ -180,7 +179,7 @@ describe("GAOKAO manager integration", () => {
         const reloadedData = JSON.parse(JSON.stringify(data)) as typeof data;
         const reloadedManager = new GaokaoManager({
             getData: () => reloadedData,
-            persist: () => Promise.resolve(),
+            transact: async (operation) => await operation({ data: reloadedData, save: async (next) => { Object.assign(reloadedData, next); } }),
             eventFactory: {
                 createId: () => "00000000-0000-4000-8000-999999999999",
                 now: () => new Date("2026-08-08T08:00:00.000Z"),
@@ -191,11 +190,11 @@ describe("GAOKAO manager integration", () => {
         expect(reloadedManager.getHistory(knowledgePoint.gaokao_id)).toEqual(data.learningEvents);
     });
 
-    test("rolls back an append when data.json persistence fails", async () => {
+    test("does not expose an unconfirmed append when persistence fails", async () => {
         const data = createDefaultGaokaoPluginData();
         const manager = new GaokaoManager({
             getData: () => data,
-            persist: () => Promise.reject(new Error("disk unavailable")),
+            transact: async (operation) => await operation({ data, save: async () => { throw new Error("disk unavailable"); } }),
             eventFactory: {
                 createId: () => "00000000-0000-4000-8000-999999999999",
                 now: () => new Date("2026-08-08T08:00:00.000Z"),

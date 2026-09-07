@@ -1,39 +1,28 @@
 # GAOKAO Obsidian Learning Tracker
 
-This repository is an independent GAOKAO-focused distribution of the Obsidian
-Spaced Repetition plugin. It adds six-subject learning workflows, structured
-learning events, a Today view, whole-note review actions, and local JPEG/PNG
-evidence capture.
+当前发布：**0.1.0-rc.1-gaokao.2** · 保留 R1–R5 v0.2 完整实现。
 
-## Privacy and data isolation
+[最新版安装包](https://github.com/wangfrances513-hue/gaokao-obsidian-learning-tracker/releases/latest) · [本版说明](docs/releases/0.1.0-rc.1-gaokao.2.md) · [快速上手](docs/Obsidian-GAOKAO学习系统快速上手.md) · [从零 SOP](docs/learning-examples/00-开始这里/03-GAOKAO插件从零上手SOP.md) · [六科通用 Prompt](docs/learning-examples/提示词/六科高精度泛用Prompt.md) · [示例导航](docs/learning-examples/00-开始这里/00-示范库主页.md) · [写入规范](docs/R1-R5写入规范.md)
 
-The repository contains plugin source code and release files only. Personal
-Vault notes, images, learning history, scheduler state, and plugin `data.json`
-are stored locally in the user's Obsidian Vault and are not synchronized back
-to this repository. Creating or editing a knowledge point in Obsidian does not
-change the plugin source on GitHub.
+## 安装与更新
 
-Installable files are available from [GitHub Releases](../../releases). Copy
-`main.js`, `manifest.json`, and `styles.css` into:
+GitHub 自动生成的 Source code ZIP 不是插件安装包。下载本版 `gaokao-obsidian-learning-tracker-v0.1.0-rc.1-gaokao.2.zip`，或同一发布中的 **main.js、manifest.json、styles.css** 三个文件。放入 `<目标 Vault>/.obsidian/plugins/obsidian-spaced-repetition/` 并在该 Vault 启用 Spaced Repetition。更新前备份旧三文件与 data.json；仅替换三个插件文件，保留真实 data.json、笔记、图片和排期。示例库不需要安装插件，也不能把其数据复制到个人学习库。
 
-```text
-<Vault>/.obsidian/plugins/obsidian-spaced-repetition/
-```
+## 当前工作流
 
-This project preserves the upstream MIT license and attribution. It is based
-on [st3v3nmw/obsidian-spaced-repetition](https://github.com/st3v3nmw/obsidian-spaced-repetition)
-and is not an official upstream release.
+R1 确认来源与 Entity → R2 无答案 Prompt 尝试 → R3 Cues 回忆 → R4 陌生同构题 practice → R5 现实 verification。无评分默认逐轮推进，R2/R3 显式 Good/Easy 快进 R5，Again/Hard 保留历史并走默认下一轮；R1 所有评分都进入 R2。R5 完成后保持 R5，并不表示掌握或通过考试。
 
-## GAOKAO commands
+“完成本轮”每次只记一条相应事件；“仅记录普通历史事件”不推进 Round。scheduler 是唯一排期写入者，Today 按到期、最低建议和推荐学习组织行动；不引入普遍时长估计、第二 scheduler 或新的掌握度字段。R1–R4 不走新计时路径，R5 时长仅适用于明确的 Isolated 单题速度验证。
 
-中文使用说明：[Obsidian-GAOKAO学习系统快速上手](docs/Obsidian-GAOKAO学习系统快速上手.md)
+文字和图片共用十个标准区块，完整原图和实际 SHA 进入 Original Evidence。入库不自动产生学习事件或评分。保留原件，禁止用占位题面或假来源冒充可用材料。
 
-- `GAOKAO: Open Today`
-- `GAOKAO: Create subject learning note`
-- `GAOKAO: Capture image evidence`
-- `GAOKAO: Record study/practice/verification`
-- `GAOKAO: Show recent learning events`
-- `GAOKAO: Validate current note`
+## 验证边界与隐私
+
+本版包含已交付的完整实现、文档与合成示例，没有采用消融删减变体。类型检查、定向测试和示例结构检查各自记录结果；原消融总体结论仍是 **INCONCLUSIVE**。原生首帧、真实进程恢复等不能由自动化或一次正常截图证明，不宣称完整运行验收或学习收益。
+
+公开内容不包含个人 Vault、真实 data.json、学习事件、排期、私人题图、本机路径或本地实验原始证据。示例为写法素材，不是已完成学习。插件不会把个人学习数据同步到此源码仓库。
+
+本项目是基于 [st3v3nmw/obsidian-spaced-repetition](https://github.com/st3v3nmw/obsidian-spaced-repetition) 的独立发行版，保留原作者归属和 MIT 许可，不是上游官方发布。以下上游说明只介绍继承的通用能力；GAOKAO 操作以以上本版中文指南为准。
 
 ---
 

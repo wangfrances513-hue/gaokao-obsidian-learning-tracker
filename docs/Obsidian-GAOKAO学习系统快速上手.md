@@ -1,110 +1,90 @@
 # Obsidian GAOKAO 学习系统快速上手
 
-这套系统用一条简单闭环管理六科学习：**创建知识点 → 记录学习 → 安排复习 → Today 执行 → 查看历史 → 用图片沉淀题目证据**。
+Personal Learning 是实际学习库：仅在真实学习后记录事件、复习并使用 Today。Learning Examples 用于示范、指南和 Prompt，不保存真实学习记录。本文只更新使用说明，不要求为验证提交学习。
 
-> [!tip] 最重要的原则
-> 一个笔记只解决一个知识点、方法、模型或代表题。标题要能让未来的自己一眼知道“我要复习什么”。
+## 当前版本与安装更新
 
-## 一、第一次使用：5 分钟上手
+文档口径：R1–R5 v0.2；发布版本：`0.1.0-rc.1-gaokao.2`。下载 [最新版安装包](https://github.com/wangfrances513-hue/gaokao-obsidian-learning-tracker/releases/latest)。源码 ZIP 不是可安装插件包；同一发布页的 main.js、manifest.json、styles.css 必须成套使用。
 
-1. 按 `⌘P` 打开命令面板。
-2. 运行 `GAOKAO: Create subject learning note`。
-3. 选择科目和最符合内容的模板。
-4. 输入清晰标题，确认文件夹后点击“创建并打开”。
-5. 只填写真正需要记住的结论、条件、错因和识别信号，不必一次写满全部栏目。
-6. 学完后运行 `GAOKAO: Record study/practice/verification`，选择本次行为并记录时长。
-7. 需要进入复习队列时，使用 Spaced Repetition 的**整笔记**评分：`Again / Hard / Good / Easy`。不要选择 card/卡片评分。
-8. 每天从 `GAOKAO: Open Today` 开始，优先完成“到期与逾期复习”。
+目标 Vault 已有插件时，先备份该插件目录的三个文件与 data.json，再在确认的目标 Vault 停用插件，替换三个文件并重新启用；保留 data.json，不能复制其他 Vault 的数据。新安装把三个文件放入 `<目标 Vault>/.obsidian/plugins/obsidian-spaced-repetition/`，再在该 Vault 的社区插件设置启用 Spaced Repetition。不要关闭身份不明的其他 Vault 窗口。
 
-示例标题：`二次函数顶点式与最值`。
+按 `⌘P` 打开命令面板（非 macOS 使用对应快捷键）。常用命令：
 
-## 二、六条常用命令
+|命令|用途|
+|---|---|
+|GAOKAO: Open Today|打开到期、最低建议和推荐学习|
+|GAOKAO: Create subject learning note|按六科 18 个现有模板创建 Entity|
+|GAOKAO: Capture image evidence|单次捕获一张本地 JPEG/PNG 并创建/复用受管附件|
+|GAOKAO: Record study/practice/verification|选择完成本轮，或仅记录普通历史事件|
+|GAOKAO: Show recent learning events|核对当前 Entity 的历史|
+|GAOKAO: Validate current note|校验身份与 schema；不替代正文结构检查|
 
-| 命令 | 什么时候用 | 结果 |
-| --- | --- | --- |
-| `GAOKAO: Open Today` | 每天开始学习时 | 查看到期复习与推荐学习项 |
-| `GAOKAO: Create subject learning note` | 新增知识点、方法、模型或题目时 | 按学科模板创建带稳定 ID 的笔记 |
-| `GAOKAO: Capture image evidence` | 保存题目截图、试卷照片或图表时 | 创建题目笔记并管理 JPEG/PNG 附件 |
-| `GAOKAO: Record study/practice/verification` | 完成一次学习、练习或验证后 | 写入一条 Learning Event |
-| `GAOKAO: Show recent learning events` | 想回看当前知识点最近做过什么时 | 显示学习与复习历史 |
-| `GAOKAO: Validate current note` | 笔记异常、命令不可用或准备复习前 | 检查 ID、学科、类型和模板字段 |
+空白标签页通常只有 Today、创建和图片入口；Validate 需要 Markdown，记录和历史命令需要有效 GAOKAO Entity。看不到命令时先确认当前 Vault 和插件启用状态。
 
-## 三、创建一个规范的学习条目
+## 材料准备与十个标准区块
 
-### 推荐步骤
+用插件选择学科、模板和标题。模板决定实体类型与默认目录，不能仅改文件夹。`knowledge_point` 自身就是知识点；`problem_case` 的图片捕获必须关联同科唯一有效的已有知识点。不要新造 ID 体系，保留插件生成的 YAML、gaokao_id、关联及 review tag；整理旧笔记保留既有 sr-* 和历史。
 
-1. 运行 `GAOKAO: Create subject learning note`。
-2. 选择最贴近本次学习目的的模板，而不是只按文件夹选择。
-3. 标题使用“内容名称”，不要使用“今天学习”“第 3 题”等脱离上下文后看不懂的名称。
-4. 创建后先填写以下四类信息：
-   - **核心内容**：最终要记住什么。
-   - **适用条件**：什么时候可以使用。
-   - **易错点**：最可能在哪里判断错。
-   - **识别信号**：下次看到什么特征，就应该想到它。
-5. 练习或验证后再补充代表题、错误过程和修订结论。
+正文依次保留十个二级标题：Source、Prompt、Cues、Core Idea、Error Boundaries、Solution Skeleton、Original Evidence、Detailed Solution、Deep Dive、Variant Pool。每个只出现一次；只有一个一级标题，与文件名去掉 .md 完全相同。一级标题后首个区块前只能有空行；学科细分用区块内加粗标签，不能添加中文二级或三级标题。
 
-### 不要手动修改
+Source 放真实来源定位；Prompt 写可独立作答且无答案的题面或具体重建任务；Cues 用 3–5 行短关键词，每行以 `- ` 开头，不超过 80 字符，无答案、嵌图或 HTML。其余区块没有依据时留空，不能删除固定标题，也不能用假题号、假错因或占位句冒充就绪。
 
-- `gaokao_id`
-- `entity_type`
-- `subject`
-- `workflow_kind`
-- `sr-due`、`sr-interval`、`sr-ease`
-- 插件目录中的 `data.json`
+文字、照片、截图、多图和混合输入都可交给通用 Prompt 整理；先核对本次指定附件，不能误用旧图片。插件的单次图片捕获仍只接收一张 JPEG/PNG，最大 25 MiB。多图先明确同题/多题关系，不声称插件支持自动批量入库。
 
-这些字段分别承担稳定身份、模板路由和复习调度。移动或重命名笔记没有问题，但不要手工重建 ID。
+完整原图与每张图实际 SHA-256 只放 Original Evidence：使用插件返回的 Vault 相对路径 `![[路径]]`，不用别名、宽度或锚点；Source 可用无 `!` 的普通链接。Prompt 默认只放无答案文字，含答案/批改的图片不能展开。纯文字不编造图片与 SHA。保留收件原件路径和字节，不自动移入归档目录。
 
-## 四、添加图片和题目证据
+材料创建和 AI 补写正文不会自动完成 R1，不生成学习事件、用户评分或排期。关闭随后打开的完成对话框即可保留材料而不提交本轮。
 
-1. 准备本地 JPEG 或 PNG；系统会校验真实字节签名，不只看扩展名。
-2. 按 `⌘P`，运行 `GAOKAO: Capture image evidence`。
-3. 在“本地图像”中选择文件。
-4. 选择正确科目。
-5. 输入能说明题型或错误点的标题。
-6. 选择一个当前科目的有效知识点作为关联对象。
-7. 点击“生成确认计划”。
-8. 检查计划中的科目、知识点、题目笔记路径、附件路径和 SHA-256。
-9. 确认无误后点击一次“确认写入并打开”。
+## R1–R5：实际行动后完成本轮
 
-注意：
+|当前轮次|实际行动|本次完成事件|默认下一轮|
+|---|---|---|---|
+|R1|确认材料已关联、准确 Entity/学科、可读来源及原件保留；不表示掌握|study|R2|
+|R2|先看 Identity、Source、无答案 Prompt，实际尝试重建，再记录|review|R3|
+|R3|先看 Identity、Source、3–5 个 Cues，实际尝试回忆，再记录|review|R4|
+|R4|完成一题陌生同构题，记录真实题目和作答位置|practice|R5|
+|R5|现实验证并核对结果，如实选择实际模式|verification|R5|
 
-- 同一张图片再次导入时，系统会按 SHA-256 复用已有附件，不重复保存。
-- 图片捕获**不会自动记录 Learning Event**。完成题目分析后，应另行运行 `GAOKAO: Record study/practice/verification`。
-- 如果最终计划不正确，点击“取消”；取消不会生成笔记或附件。
-- 如果提示图片签名无效，停止使用该文件，不要通过改扩展名绕过校验。
-- 不要手动删除 `资源/图片` 中仍被题目笔记引用的附件。
+从 Today 进入当前行动；也可在目标笔记运行 Record，选择“完成本轮（评分可不选）”。R2/R3 先完成展示前确认，尝试后再点底栏“完成本轮”，核对结果对话框后提交。其他语义区块默认折叠，尝试后可手动展开；展示不重写 Markdown。R4/R5 从 Today 到结果入口，不默认打开原 Entity 答案。
 
-## 五、学习、复习和进度闭环
+每次成功完成仅追加一条上述类型的事件，R1/R4/R5 不额外追加 review。提交前取消/关闭产生 0 条完成事件；提交后等待结果，不连续点击。Round 由事件链推导，完成后即使进入下一轮，也须尊重原 scheduler 的 due date，不能手改日期让它立即到期。
 
-### 记录一次学习
+R4/R5 的证据必须发生在本周期建立之后、提交之前，尚未入账，不能跨 Entity、跨轮次/周期重复消费。旧的已入账活动不能再拿来抵扣完成本轮。
 
-打开目标笔记，运行 `GAOKAO: Record study/practice/verification`：
+R5 Mixed 是实际混合考试：确认整卷限时，作答前未得到对应模型提示；Isolated 是专项验证，确认实际满足专项条件。两者都要实际作答并核对结果；失败也可如实记录，进入 R5 不代表通过。只有明确选择 Isolated 的单题速度验证时，才接受事后单题时长。R1–R4 没有新的计时路径。
 
-- **学习（study）**：第一次理解、整理知识或听课后总结。
-- **练习（practice）**：做题、输出、应用方法或完成实验分析。
-- **验证（verification）**：闭卷回忆、重做、复述或检查是否真正掌握。
+## 可选评分、普通历史与排期
 
-一次真实学习行为记录一条即可。不要因为没有看到提示而重复点击。
+|当前轮次|未评分 / Again / Hard|Good / Easy|
+|---|---|---|
+|R1|R2|R2|
+|R2|R3|快进 R5|
+|R3|R4|快进 R5|
+|R4|R5|R5|
+|R5|保持 R5|保持 R5|
 
-### 安排整笔记复习
+未评分不保存用户 rating，也不代表答对。scheduler 内部使用 Good fallback 计算排期，不能冒充用户选择 Good。Again/Hard 如实保存为学习历史；后续无评级完成不抹掉最近一次明确的 Again/Hard。关注实际尝试、明确状态与事件；前期轮次不以时长为主要目标，不新增 mastery/confidence/timer 等字段。
 
-| 评分 | 建议判断 |
-| --- | --- |
-| `Again` | 基本想不起来，需要重新学习 |
-| `Hard` | 能想起一部分，但过程不稳或错误较多 |
-| `Good` | 基本正确，只有小遗漏 |
-| `Easy` | 能快速、完整、稳定地提取和应用 |
+“仅记录普通历史事件”只追加普通 study/practice/verification 历史，不推进 Round，也不替代“完成本轮”的排期提交。一次活动不要先记普通事件再拿来完成 R4/R5。普通非 GAOKAO 整笔记复习沿用既有逻辑。不要为同一次 Round 完成再额外补一次整笔记评分。
 
-评分后，调度状态保存在笔记的 `sr-*` 字段中。不要手动改日期或间隔。
+排期仍由现有 whole-note scheduler 单独写入 sr-due、sr-interval、sr-ease；Today、Prompt 和 AI 都不维护第二套日期。不要编辑 data.json 或手工拼接 Learning Events。
 
-### 每日最短流程
+## Today 的日常使用
 
-1. 打开 `GAOKAO: Open Today`。
-2. 先完成“到期与逾期复习”。
-3. 再从“推荐学习”选择一个当前重点。
-4. 学完记录一次 Learning Event。
-5. 根据实际掌握程度做整笔记评分。
-6. 必要时用 `Show recent learning events` 检查最近是否重复学习、缺少验证或长期没有练习。
+运行 Open Today，先核对 Round、最近明确状态、下一行动和待核对提示。到期项来自持久化 scheduler 日期，逾期优先；默认最低建议取前三项，但其余到期项仍保留，不被科目权重隐藏。未排期的有效条目可以进入推荐学习，默认最多三项；无需先伪造一次评分才能出现。未到期已排期项不冒充新推荐。
+
+完成、修订材料或重新索引后可点击 Today 的“刷新”重新核对；没有目标条目时检查身份唯一、review tag、忽略路径、scheduler 就绪及排期收据。Today 不显示普遍时长估计，也不按时长排序；它是行动入口，不是第二个调度器。
+
+## 常见阻断与恢复
+
+- 标题外正文/图片、未知或重复标题、Cues 不合规：按十区块重排；Validate 通过仍须单独检查 R2/R3 结构。
+- 来源为空、链接不可读、图片签名/SHA/规范路径不符：核对本次材料与原件，不改扩展名绕过检查。
+- gaokao_id 重复、目标学科/路径变化：停止该条提交，核对唯一 Entity，不能创建替代 ID 掩盖问题。
+- scheduler 写入失败：不能当作完成；Event 保存失败而 scheduler 已落地时，按 pending/补记提示核对同一次提交。不要删 pending 或重新评分。
+- 恢复入口只在能区分 before/after 时继续原候选或补记固定事件；before=after、外部变化等不明确状态应保留待核对，不手改 data.json。
+- 换窗格或内容改变后展示确认可能失效，重新准备当前轮次；怀疑重复时只读查看历史。
+
+当前自动化和结构检查不等于完整原生验收；已完成的消融报告总体仍为 INCONCLUSIVE。原生首帧、异步图像、真实进程恢复仍有未验证边界。保留完整实现，不采用 P/A/I/E 删减变体。
 
 ## 六、六科记录重点
 
@@ -156,25 +136,7 @@
 - 方法类笔记保存识别信号、答题步骤和答案结构。
 - 作文素材必须写清适用边界，避免万能素材和生硬套用。
 
-## 八、遇到问题时先检查
 
-| 现象 | 先做什么 |
-| --- | --- |
-| 看不到 GAOKAO 命令 | 确认当前打开的是你的正式学习 Vault，再确认插件已启用 |
-| 当前笔记不能记录事件 | 运行 `GAOKAO: Validate current note`，检查是否为有效 GAOKAO 笔记 |
-| Today 没有某笔记 | 确认该笔记已经做过一次整笔记评分并拥有 `sr-*` 字段 |
-| 图片无法导入 | 确认文件是真实 JPEG/PNG，而不是只改了扩展名 |
-| 图片已保存但历史没有事件 | 这是正常行为；图片捕获与 Learning Event 是两个独立动作 |
-| 移动或改名后找不到进度 | 先验证 `gaokao_id` 未变，再重新打开 Today；不要创建重复笔记 |
-| 怀疑重复记录 | 运行 `GAOKAO: Show recent learning events`，不要直接编辑 `data.json` |
+## 维护与进一步阅读
 
-## 九、推荐的轻量维护习惯
-
-- 每周处理一次 `00-Inbox`，把临时内容归入具体学科。
-- 每周检查一次长期没有 verification 的重点知识点。
-- 标题、学科和知识点关系错误时立即修正，不要等笔记积累后再整理。
-- 正常学习只需要使用 Obsidian；Debug archive 和部署备份仅在故障诊断或回滚时使用。
-- 不需要为了“记录完整”而填满所有栏目。真正有价值的是：**结论、条件、错因、识别信号和下一次验证结果**。
-
-> [!summary] 一句话工作流
-> 新知识用模板建笔记，学完记事件，需要记忆就做整笔记评分，每天从 Today 执行，题目图片用 Capture image evidence，异常先 Validate。
+保留十个区块，但不填造内容。新材料先核对来源，再完成 R1；普通历史与本轮完成分别使用。公开 [六科 Prompt 与示例](https://github.com/wangfrances513-hue/gaokao-obsidian-learning-tracker/tree/main/docs/learning-examples) 和 [R1–R5 写入规范](https://github.com/wangfrances513-hue/gaokao-obsidian-learning-tracker/blob/main/docs/R1-R5写入规范.md) 与本指南同版本。

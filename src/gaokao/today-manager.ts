@@ -1,4 +1,9 @@
+import moment from "moment";
 import { Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { readRoundScheduleFrontmatter } from "src/data/data-structures/file/note-file";
+import { SettingsUtil } from "src/data/settings";
+import { sameRoundData } from "src/gaokao/review-flow";
+import { inspectR1Text } from "src/gaokao/review-presentation";
 
 import {
     buildTodayPlan,
@@ -7,7 +12,6 @@ import {
     TodayScheduleState,
 } from "src/gaokao/today-planner";
 import type SRPlugin from "src/main";
-import { SchedNote } from "src/note/note-review-deck";
 import {
     GAOKAO_TODAY_VIEW_TYPE,
     GaokaoTodayView,
@@ -17,6 +21,7 @@ import { globalDateProvider } from "src/utils/dates";
 export interface GaokaoTodaySnapshot {
     plan: TodayPlan;
     invalidOrDuplicateCount: number;
+    pendingIssue?: string;
 }
 
 export class GaokaoTodayManager {
@@ -37,20 +42,36 @@ export class GaokaoTodayManager {
         this.redraw();
     }
 
-    createSnapshot(): GaokaoTodaySnapshot {
-        const scheduleStates = this.collectAuthoritativeScheduleStates();
-        const candidates: TodayPlannerCandidate[] = this.plugin.dataManager
-            .getGaokaoEntities()
-            .map(({ path, entity }) => {
+    async createSnapshot(): Promise<GaokaoTodaySnapshot> {
+        const candidates: TodayPlannerCandidate[] = [];
+        for (const { path, entity } of this.plugin.dataManager.getGaokaoEntities()) {
                 const file = this.plugin.app.vault.getAbstractFileByPath(path);
-                return {
+                const flow = this.plugin.dataManager.gaokaoManager.getRoundState(entity.gaokao_id);
+                let schedule: TodayScheduleState = { kind: "unavailable" };
+                let flowIssue: string | undefined;
+                let r1Action: string | undefined;
+                if (file instanceof TFile && this.plugin.dataManager.isOsrCoreLoaded() && !this.plugin.dataManager.syncLock) {
+                    try {
+                        const metadata = await this.plugin.dataManager.createSRNoteTFile(file).readPersistentMetadata();
+                        r1Action = inspectR1Text(metadata.text).hasMaterial ? "R1 待完成：确认入库并记录" : "R1 待入库：先确认来源材料";
+                        const settings = this.plugin.dataManager.data.settings;
+                        if (metadata.frontmatter.gaokao_id !== entity.gaokao_id ||
+                            !SettingsUtil.isAnyTagANoteReviewTag(settings, metadata.tags) ||
+                            SettingsUtil.isAnyTagIgnoredForNotes(settings, metadata.tags) ||
+                            SettingsUtil.isPathInFoldersToIgnore(settings, path)) throw new Error("身份或复习标签待核对。");
+                        const receipt = readRoundScheduleFrontmatter(metadata.frontmatter);
+                        schedule = receipt === null ? { kind: "none" } : { kind: "scheduled", dueUnix: moment(receipt.due, "YYYY-MM-DD", true).valueOf() };
+                        if (flow.ok && flow.state.tail && !sameRoundData(receipt, flow.state.tail.schedule_after)) flowIssue = "当前排期与流程收据不符，待核对";
+                    } catch { schedule = { kind: "invalid" }; }
+                }
+                candidates.push({
                     path,
                     title: file instanceof TFile ? file.basename : path,
                     entity,
                     events: this.plugin.dataManager.getGaokaoEventHistory(entity.gaokao_id),
-                    schedule: scheduleStates.get(path) ?? { kind: "none" },
-                };
-            });
+                    schedule, flow, flowIssue, r1Action,
+                });
+        }
 
         const invalidOrDuplicateCount = this.plugin.dataManager
             .getGaokaoInspections()
@@ -64,6 +85,9 @@ export class GaokaoTodayManager {
                 todayUnix: globalDateProvider.today.valueOf(),
             }),
             invalidOrDuplicateCount,
+            ...(this.plugin.dataManager.data.gaokao.pendingRoundCommit ? {
+                pendingIssue: `存在未确认提交：${this.plugin.dataManager.data.gaokao.pendingRoundCommit.event.entity_id}。排期可能已改变；先核对同一提交，后续流程暂停。`,
+            } : {}),
         };
     }
 
@@ -89,35 +113,11 @@ export class GaokaoTodayManager {
             new Notice("GAOKAO：实体文件当前不可用，未执行导航。", 10000);
             return;
         }
-        await this.plugin.app.workspace.getLeaf().openFile(file);
+        await this.plugin.dataManager.openRoundEntry(entityId);
     }
 
-    private collectAuthoritativeScheduleStates(): Map<string, TodayScheduleState> {
-        const states = new Map<string, TodayScheduleState>();
-        if (!this.plugin.dataManager.isOsrCoreLoaded()) return states;
-        const reviewDecks = this.plugin.dataManager.osrCore.noteReviewQueue.reviewDecks;
-        if (!reviewDecks) return states;
-
-        for (const deck of reviewDecks.values()) {
-            for (const scheduledNote of deck.scheduledNotes) {
-                this.mergeScheduledState(states, scheduledNote);
-            }
-        }
-        return states;
-    }
-
-    private mergeScheduledState(
-        states: Map<string, TodayScheduleState>,
-        scheduledNote: SchedNote,
-    ): void {
-        const path = scheduledNote.note.path;
-        const dueUnix = scheduledNote.dueUnix;
-        const current = states.get(path);
-        if (!Number.isFinite(dueUnix)) {
-            if (current === undefined) states.set(path, { kind: "unavailable" });
-            return;
-        }
-        if (current?.kind === "scheduled" && current.dueUnix <= dueUnix) return;
-        states.set(path, { kind: "scheduled", dueUnix });
+    async openRecovery(): Promise<void> {
+        const pending = this.plugin.dataManager.data.gaokao.pendingRoundCommit;
+        if (pending) await this.plugin.dataManager.openRoundEntry(pending.event.entity_id);
     }
 }

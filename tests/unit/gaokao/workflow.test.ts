@@ -292,15 +292,22 @@ describe("Task 011 image evidence body extension", () => {
         },
     );
 
-    test("rejects evidence on a knowledge_point template", () => {
-        expect(() =>
-            buildGaokaoNote({
-                templateId: "math_concept",
-                gaokaoId: idFor("math_concept"),
-                title: "不允许图片正文扩展",
-                bodyEvidence: createGaokaoImageBodyEvidence(mathPath, sha256),
-            }),
-        ).toThrow(/仅允许用于 problem_case/);
+    test("adds controlled evidence to a knowledge_point template", () => {
+        const note = buildGaokaoNote({
+            templateId: "math_concept",
+            gaokaoId: idFor("math_concept"),
+            title: "图片知识点",
+            bodyEvidence: createGaokaoImageBodyEvidence(mathPath, sha256),
+        });
+
+        expect(note.frontmatter).toMatchObject({
+            entity_type: "knowledge_point",
+            subject: "数学",
+            knowledge_type: "memory",
+        });
+        expect(note.frontmatter).not.toHaveProperty("knowledge_ids");
+        expect(note.content).toContain(`![[${mathPath}]]`);
+        expect(note.content).toContain(`SHA-256: ${sha256}`);
     });
 
     test.each(["A".repeat(64), "a".repeat(63), "a".repeat(65), `${"a".repeat(63)}g`])(
@@ -329,4 +336,17 @@ describe("Task 011 image evidence body extension", () => {
         const mismatchedPath = `资源/图片/数学/2026/08/${"b".repeat(64)}.jpg`;
         expect(() => createGaokaoImageBodyEvidence(mismatchedPath, sha256)).toThrow(/不一致/);
     });
+});
+test("v0.2 T19 T22 new flow templates isolate full images under Original Evidence", () => {
+    const sha256 = "a".repeat(64);
+    const attachmentPath = `资源/图片/数学/2026/09/${sha256}.png`;
+    const note = buildGaokaoNote({ templateId: "math_concept", title: "Synthetic flow", gaokaoId: "synthetic-flow", roundFlow: true,
+        bodyEvidence: createGaokaoImageBodyEvidence(attachmentPath, sha256) });
+    expect(note.content).toContain(`## Source\n\n[[${attachmentPath}]]`);
+    expect(note.content).toContain(`## Original Evidence\n\n![[${attachmentPath}]]\n\nSHA-256: ${sha256}`);
+    expect(note.content.indexOf(`![[${attachmentPath}]]`)).toBeGreaterThan(note.content.indexOf("## Original Evidence"));
+    expect(note.content).not.toMatch(/current_round|review_round|mastery|confidence|timer_state/);
+    for (const heading of ["Source", "Prompt", "Cues", "Core Idea", "Error Boundaries", "Solution Skeleton", "Original Evidence", "Detailed Solution", "Deep Dive", "Variant Pool"]) {
+        expect(note.content).toContain(`## ${heading}`);
+    }
 });

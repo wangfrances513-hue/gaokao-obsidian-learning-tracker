@@ -315,6 +315,7 @@ export const GAOKAO_NOTE_TEMPLATES: readonly GaokaoNoteTemplateDefinition[] = [
 ] as const;
 
 export interface GaokaoTemplateInput {
+    roundFlow?: boolean;
     templateId: GaokaoNoteTemplateId;
     gaokaoId: string;
     title: string;
@@ -340,7 +341,9 @@ export interface GeneratedGaokaoNote {
     content: string;
 }
 
-function getTemplate(templateId: GaokaoNoteTemplateId): GaokaoNoteTemplateDefinition {
+export function getGaokaoNoteTemplate(
+    templateId: GaokaoNoteTemplateId,
+): GaokaoNoteTemplateDefinition {
     const template = GAOKAO_NOTE_TEMPLATES.find((candidate) => candidate.id === templateId);
     if (!template) throw new Error("不支持的 GAOKAO 模板类型。");
     return template;
@@ -397,7 +400,7 @@ export function generateGaokaoId(
         .replace(/[^a-z0-9]/g, "")
         .slice(0, 12);
     if (suffix.length < 8) throw new Error("无法生成稳定的 GAOKAO ID。");
-    return `${getTemplate(templateId).idPrefix}-${suffix}`;
+    return `${getGaokaoNoteTemplate(templateId).idPrefix}-${suffix}`;
 }
 
 export function mergeGaokaoTemplateFrontmatter(
@@ -491,7 +494,7 @@ export function createGaokaoImageBodyEvidence(
 }
 
 export function buildGaokaoNote(input: GaokaoTemplateInput): GeneratedGaokaoNote {
-    const template = getTemplate(input.templateId);
+    const template = getGaokaoNoteTemplate(input.templateId);
     const title = validateGaokaoNoteTitle(input.title);
     const folder = validateVaultFolder(input.folder, template.defaultFolder);
     if (!isValidGaokaoId(input.gaokaoId)) {
@@ -531,17 +534,23 @@ export function buildGaokaoNote(input: GaokaoTemplateInput): GeneratedGaokaoNote
     }
 
     const bodyParts = [`# ${title}`];
-    if (input.bodyEvidence !== undefined) {
-        if (template.entityType !== "problem_case") {
-            throw new Error("图片证据正文扩展仅允许用于 problem_case 模板。");
+    if (input.roundFlow) {
+        for (const section of ["Source", "Prompt", "Cues", "Core Idea", "Error Boundaries", "Solution Skeleton", "Original Evidence", "Detailed Solution", "Deep Dive", "Variant Pool"]) {
+            bodyParts.push(`## ${section}`);
+            if (section === "Source" && input.bodyEvidence) bodyParts.push(`[[${input.bodyEvidence.attachmentPath}]]`);
+            if (section === "Original Evidence" && input.bodyEvidence) {
+                const evidence = validateImageBodyEvidence(input.bodyEvidence.attachmentPath, input.bodyEvidence.sha256);
+                bodyParts.push(`![[${evidence.attachmentPath}]]`, `SHA-256: ${evidence.sha256}`);
+            }
         }
+    } else if (input.bodyEvidence !== undefined) {
         const evidence = validateImageBodyEvidence(
             input.bodyEvidence.attachmentPath,
             input.bodyEvidence.sha256,
         );
         bodyParts.push(`![[${evidence.attachmentPath}]]`, `SHA-256: ${evidence.sha256}`);
     }
-    for (const section of template.bodySections) {
+    for (const section of input.roundFlow ? [] : template.bodySections) {
         bodyParts.push(`## ${section}`);
         if (template.id === "physics_problem" && section === "关键模型与步骤") {
             bodyParts.push(

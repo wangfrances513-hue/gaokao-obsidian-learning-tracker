@@ -8,7 +8,7 @@ import { NoteDataStoreAlgorithmOsr } from "src/data/data-store/notes-data-store/
 import { NotesDataStore } from "src/data/data-store/notes-data-store/notes-data-store";
 import { QuestionPostponementList } from "src/data/data-structures/card/questions/question-postponement-list";
 import { TopicPath } from "src/data/data-structures/deck/topic-path";
-import { ISRNoteTFile, SRNoteTFile } from "src/data/data-structures/file/note-file";
+import { ISRNoteTFile, SRNoteTFile, readRoundScheduleFrontmatter, receiptFromSchedule, scheduleFromReceipt } from "src/data/data-structures/file/note-file";
 import { PluginData } from "src/data/plugin-data";
 import { PluginDataManager } from "src/data/plugin-data-manager";
 import { SettingsUtil, SRSettings } from "src/data/settings";
@@ -25,9 +25,11 @@ import {
     GaokaoManager,
     RecordLearningEventResult,
     reviewResponseToRating,
+    RoundCommitIO, RoundTarget,
 } from "src/gaokao/gaokao-manager";
 import { LearningEvent, LearningEventInput, ReviewRating } from "src/gaokao/learning-event";
 import { GaokaoSubject } from "src/gaokao/schema";
+import { RoundCompletionInput, sameRoundData } from "src/gaokao/review-flow";
 import { t } from "src/lang/helpers";
 import SRPlugin from "src/main";
 import { Note } from "src/note/note";
@@ -65,6 +67,9 @@ export class DataManager {
     public readonly gaokaoManager: GaokaoManager;
     private gaokaoReviewFeedbackProvider: GaokaoReviewFeedbackProvider | null = null;
     private readonly gaokaoReviewSubmissionGuard = new GaokaoSubmissionGuard();
+    private roundEntry: ((entityId: string, userRating?: ReviewRating) => Promise<void>) | null = null;
+    private roundActionValidator: ((target: RoundTarget, input: RoundCompletionInput) => Promise<void>) | null = null;
+    private roundScheduleQueue: Promise<void> = Promise.resolve();
 
     constructor(
         plugin: SRPlugin,
@@ -76,9 +81,7 @@ export class DataManager {
         this.settingsManager = settingsManager;
         this.gaokaoManager = new GaokaoManager({
             getData: () => this.pluginDataManager.pluginData.gaokao,
-            persist: async () => {
-                await this.pluginDataManager.savePluginData();
-            },
+            transact: async (operation) => await this.pluginDataManager.withGaokaoTransaction(operation),
         });
     }
 
@@ -261,6 +264,108 @@ export class DataManager {
         this.gaokaoReviewFeedbackProvider = provider;
     }
 
+    setRoundEntry(
+        entry: (entityId: string, userRating?: ReviewRating) => Promise<void>,
+        validateAction: (target: RoundTarget, input: RoundCompletionInput) => Promise<void>,
+    ): void {
+        this.roundEntry = entry;
+        this.roundActionValidator = validateAction;
+    }
+
+    async openRoundEntry(entityId: string, userRating?: ReviewRating): Promise<void> {
+        if (!this.roundEntry) throw new Error("流程结果入口尚未就绪。");
+        await this.roundEntry(entityId, userRating);
+    }
+
+    /** Rebuild the existing identity registry from persistent frontmatter, not stale metadata. */
+    async resolveRoundTarget(entityId: string): Promise<RoundTarget> {
+        if (!this.isOsrCoreLoaded() || this.syncLock) throw new Error("原调度器尚未就绪或正在刷新。");
+        const files = this.plugin.app.vault.getMarkdownFiles();
+        const sources = [];
+        for (const file of files) {
+            const metadata = await this.createSRNoteTFile(file).readPersistentMetadata();
+            sources.push({ path: file.path, frontmatter: metadata.frontmatter });
+        }
+        this.gaokaoManager.rebuildIndex(sources);
+        const resolved = this.resolveGaokaoEntity(entityId);
+        if (!resolved || this.getGaokaoIdPaths(entityId).length !== 1) throw new Error("gaokao_id 当前不唯一或无效。");
+        const file = this.plugin.app.vault.getAbstractFileByPath(resolved.path);
+        if (!(file instanceof TFile)) throw new Error("目标文件不可用。");
+        const metadata = await this.createSRNoteTFile(file).readPersistentMetadata();
+        this.assertRoundEligibility(file, entityId, metadata.frontmatter, metadata.tags);
+        return { entityId, path: file.path, schedule: readRoundScheduleFrontmatter(metadata.frontmatter) };
+    }
+
+    private assertRoundEligibility(file: TFile, entityId: string, frontmatter: Record<string, unknown>, tags: string[]): void {
+        if (this.plugin.app.vault.getAbstractFileByPath(file.path) !== file || frontmatter.gaokao_id !== entityId ||
+            this.getGaokaoIdPaths(entityId).length !== 1 || this.resolveGaokaoEntity(entityId)?.path !== file.path) {
+            throw new Error("实际写入边界的 Entity 身份或路径不符。");
+        }
+        if (SettingsUtil.isPathInFoldersToIgnore(this.settingsManager.settings, file.path) ||
+            SettingsUtil.isAnyTagIgnoredForNotes(this.settingsManager.settings, tags) ||
+            !SettingsUtil.isAnyTagANoteReviewTag(this.settingsManager.settings, tags)) {
+            throw new Error("目标已移除复习标签或被忽略，不能当作未排期。");
+        }
+        if (frontmatter.status !== undefined && frontmatter.status !== "active") throw new Error("目标当前不是 active Entity。");
+        if (frontmatter.entity_type === "resource_unit" &&
+            (frontmatter.resource_status === "completed" || frontmatter.resource_status === "verified")) throw new Error("资源当前不属于可执行候选。");
+    }
+
+    private roundIO(): RoundCommitIO {
+        return {
+            readTarget: async (id) => await this.resolveRoundTarget(id),
+            checkAction: async (target, input) => {
+                if (!this.roundActionValidator) throw new Error("行动校验入口尚未就绪。");
+                await this.roundActionValidator(target, input);
+            },
+            prepareSchedule: (target, response) => receiptFromSchedule(this.osrCore.prepareRoundSchedule(
+                target.path, scheduleFromReceipt(target.schedule), response,
+            )),
+            writeSchedule: async (pending) => {
+                const target = await this.resolveRoundTarget(pending.event.entity_id);
+                if (target.path !== pending.event.source_path || !sameRoundData(target.schedule, pending.schedule_before)) {
+                    throw new Error("提交前身份、路径或 expected before 已改变。");
+                }
+                const file = this.plugin.app.vault.getAbstractFileByPath(target.path);
+                if (!(file instanceof TFile) || !pending.event.schedule_after) throw new Error("排期目标不可用。");
+                const srFile = this.createSRNoteTFile(file);
+                const metadata = await srFile.readPersistentMetadata();
+                const beforeIdentity = { ...metadata.frontmatter };
+                for (const key of ["sr-due", "sr-interval", "sr-ease"]) delete beforeIdentity[key];
+                await srFile.compareAndSetRoundSchedule(target.entityId, pending.schedule_before, pending.event.schedule_after, (frontmatter) => {
+                    const currentIdentity = { ...frontmatter };
+                    for (const key of ["sr-due", "sr-interval", "sr-ease"]) delete currentIdentity[key];
+                    if (!sameRoundData(beforeIdentity, currentIdentity)) throw new Error("提交当下身份或非调度元数据已改变。");
+                    this.assertRoundEligibility(file, target.entityId, frontmatter, metadata.tags);
+                });
+            },
+            refresh: async (event) => {
+                const target = await this.resolveRoundTarget(event.entity_id);
+                if (!sameRoundData(target.schedule, event.schedule_after)) throw new Error("已提交事件的排期发生外部变化。");
+                const file = this.plugin.app.vault.getAbstractFileByPath(target.path);
+                const schedule = scheduleFromReceipt(target.schedule);
+                if (!(file instanceof TFile) || !schedule) throw new Error("派生状态目标不可用。");
+                const algorithm = SRAlgorithm.getInstance();
+                algorithm.noteStats().setEaseForPath(file.path, schedule.latestEase);
+                await this.osrCore.refreshAfterNoteSchedule(this.createSRNoteTFile(file), schedule, schedule, this.settingsManager.settings, true);
+            },
+        };
+    }
+
+    async completeRound(input: RoundCompletionInput) {
+        const result = this.roundScheduleQueue.then(async () => await this.gaokaoManager.commitRound(input, this.roundIO()));
+        this.roundScheduleQueue = result.then((): void => undefined, (): void => undefined);
+        return await result;
+    }
+
+    async inspectRoundRecovery() { return await this.gaokaoManager.inspectRoundRecovery(this.roundIO()); }
+
+    async recoverRound(eventId: string, choice: "continue" | "record") {
+        const result = this.roundScheduleQueue.then(async () => await this.gaokaoManager.recoverRound(eventId, choice, this.roundIO()));
+        this.roundScheduleQueue = result.then((): void => undefined, (): void => undefined);
+        return await result;
+    }
+
     async recordGaokaoLearningEvent(
         note: TFile,
         input: Omit<LearningEventInput, "entity_id" | "source_path">,
@@ -352,6 +457,39 @@ export class DataManager {
      * @returns {Promise<void>} - A promise that resolves when the review response is saved.
      */
     async saveNoteReviewResponse(note: TFile, response: ReviewResponse): Promise<void> {
+        const inspectionAtEntry = this.inspectGaokaoFile(note);
+        if (inspectionAtEntry.status === "valid" && inspectionAtEntry.entity) {
+            const id = inspectionAtEntry.entity.gaokao_id;
+            const state = this.gaokaoManager.getRoundState(id);
+            if (state.ok === false) { new Notice(state.issue, 10000); return; }
+            if (state.state.cycleRef !== null || this.data.gaokao.pendingRoundCommit?.event.entity_id === id) {
+                const userRating = reviewResponseToRating(response);
+                if (userRating === null) { new Notice("流程内不能通过 Reset 绕过周期核对。", 10000); return; }
+                await this.openRoundEntry(id, userRating);
+                return;
+            }
+        } else if (inspectionAtEntry.status !== "ordinary") {
+            new Notice("GAOKAO 身份无效或重复，停止评分。", 10000); return;
+        }
+        const result = this.roundScheduleQueue.then(async () => await this.saveLegacyNoteReviewResponse(note, response));
+        this.roundScheduleQueue = result.then((): void => undefined, (): void => undefined);
+        const completed = await result;
+        // Release the scheduling queue before navigation can offer pending recovery.
+        if (completed && this.settingsManager.settings.autoNextNote) {
+            await this.plugin.nextNoteReviewHandler.autoReviewNextNote();
+        }
+    }
+
+    private async saveLegacyNoteReviewResponse(note: TFile, response: ReviewResponse): Promise<boolean> {
+        // Recheck after waiting: a concurrent R1 may have joined this Entity to the flow.
+        const current = this.inspectGaokaoFile(note);
+        if (current.status !== "ordinary" && current.status !== "valid") {
+            new Notice("等待期间 GAOKAO 身份变为无效或重复，停止旧评分。", 10000); return false;
+        }
+        if ((current.entity && this.data.gaokao.pendingRoundCommit?.event.entity_id === current.entity.gaokao_id) || (current.entity &&
+            this.gaokaoManager.getHistory(current.entity.gaokao_id).some((event) => Object.prototype.hasOwnProperty.call(event, "cycle_ref")))) {
+            new Notice("当前流程状态已改变，旧评分未执行。", 10000); return false;
+        }
         if (this.osrCore === null) throw new Error("OSR app core not initialized!!!");
         if (this.plugin.nextNoteReviewHandler === null)
             throw new Error("Next note review handler not initialized!!!");
@@ -360,13 +498,13 @@ export class DataManager {
 
         if (SettingsUtil.isPathInFoldersToIgnore(this.settingsManager.settings, note.path)) {
             new Notice(t("NOTE_IN_IGNORED_FOLDER"));
-            return;
+            return false;
         }
 
         const tags = noteSrTFile.getAllTagsFromCache();
         if (!SettingsUtil.isAnyTagANoteReviewTag(this.settingsManager.settings, tags)) {
             new Notice(t("PLEASE_TAG_NOTE"));
-            return;
+            return false;
         }
 
         const inspection = this.inspectGaokaoFile(note);
@@ -415,7 +553,7 @@ export class DataManager {
             });
             if (guarded.status === "duplicate") {
                 new Notice("GAOKAO：本次复习正在记录，请勿重复提交。");
-                return;
+                return false;
             }
         } else {
             await this.osrCore.saveNoteReviewResponse(
@@ -428,9 +566,7 @@ export class DataManager {
             new Notice(t("RESPONSE_RECEIVED"));
         }
 
-        if (this.settingsManager.settings.autoNextNote) {
-            await this.plugin.nextNoteReviewHandler.autoReviewNextNote();
-        }
+        return true;
     }
 
     private showReviewRecordingResult(

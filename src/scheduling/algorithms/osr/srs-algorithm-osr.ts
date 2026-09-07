@@ -36,6 +36,18 @@ export class SRAlgorithmOsr implements ISRAlgorithm {
         return 1.0;
     }
 
+    /** Synchronous candidate calculation must not leak noteEaseList mutations on prepare failure. */
+    withoutNoteEaseSideEffects<T>(calculate: () => T): T {
+        return SRAlgorithmOsr.withNoteEaseSnapshot(this.noteEaseList, calculate);
+    }
+
+    /** Also accepts the existing OSR note delegate exposed by FSRS.noteStats(). */
+    static withNoteEaseSnapshot<T>(noteEaseList: INoteEaseList, calculate: () => T): T {
+        const before = { ...noteEaseList.dict };
+        try { return calculate(); }
+        finally { noteEaseList.dict = before; }
+    }
+
     /**
      * Calculates the new schedule for a note.
      *

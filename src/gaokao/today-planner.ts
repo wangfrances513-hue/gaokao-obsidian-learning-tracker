@@ -3,6 +3,7 @@
 import { TICKS_PER_DAY } from "src/data/constants";
 import { LearningEvent, ReviewRating } from "src/gaokao/learning-event";
 import { GaokaoEntity, GaokaoEntityType, GaokaoSubject } from "src/gaokao/schema";
+import { deriveRoundState, ROUND_ACTION, ReviewRound, RoundStateResult } from "src/gaokao/review-flow";
 
 export const SUBJECT_PRIORITY_WEIGHTS: Readonly<Record<GaokaoSubject, number>> = Object.freeze({
     数学: 1,
@@ -13,15 +14,13 @@ export const SUBJECT_PRIORITY_WEIGHTS: Readonly<Record<GaokaoSubject, number>> =
     语文: 0.3,
 });
 
-export const DEFAULT_ESTIMATED_DURATION_MINUTES = 20;
 export const DEFAULT_MINIMUM_REVIEW_LIMIT = 3;
 export const DEFAULT_DISCRETIONARY_LIMIT = 3;
-const RECENT_DURATION_OBSERVATION_LIMIT = 5;
 
 export type TodayScheduleState =
     | { kind: "none" }
     | { kind: "scheduled"; dueUnix: number }
-    | { kind: "unavailable" };
+    | { kind: "unavailable" | "invalid" };
 
 export interface TodayPlannerCandidate {
     path: string;
@@ -29,15 +28,12 @@ export interface TodayPlannerCandidate {
     entity: GaokaoEntity;
     events: readonly LearningEvent[];
     schedule: TodayScheduleState;
+    flow?: RoundStateResult;
+    flowIssue?: string;
+    r1Action?: string;
 }
 
 export type TodayNeedLabel = "again" | "hard" | "unrated" | "good" | "easy";
-
-export interface TodayDurationEstimate {
-    minutes: number;
-    source: "history" | "fallback";
-    observationCount: number;
-}
 
 export interface TodayPlanItem {
     entityId: string;
@@ -48,7 +44,10 @@ export interface TodayPlanItem {
     subjectWeight: number;
     needLabel: TodayNeedLabel;
     needScore: number;
-    durationEstimate: TodayDurationEstimate;
+    round?: ReviewRound;
+    cycleRef?: string | null;
+    action: string;
+    flowIssue?: string;
     dueUnix?: number;
     dueStatus?: "overdue" | "due_today";
     overdueDays?: number;
@@ -97,38 +96,6 @@ export function calculateCurrentNeed(events: readonly LearningEvent[]): {
     return { label: "unrated", score: 2 };
 }
 
-function roundToOneDecimal(value: number): number {
-    return Math.round(value * 10) / 10;
-}
-
-export function estimateDuration(events: readonly LearningEvent[]): TodayDurationEstimate {
-    const recent = events
-        .map((event) => event.duration_minutes)
-        .filter(
-            (value): value is number =>
-                typeof value === "number" && Number.isFinite(value) && value >= 0,
-        )
-        .slice(-RECENT_DURATION_OBSERVATION_LIMIT)
-        .sort((left, right) => left - right);
-
-    if (recent.length === 0) {
-        return {
-            minutes: DEFAULT_ESTIMATED_DURATION_MINUTES,
-            source: "fallback",
-            observationCount: 0,
-        };
-    }
-
-    const middle = Math.floor(recent.length / 2);
-    const median =
-        recent.length % 2 === 0 ? (recent[middle - 1] + recent[middle]) / 2 : recent[middle];
-    return {
-        minutes: roundToOneDecimal(median),
-        source: "history",
-        observationCount: recent.length,
-    };
-}
-
 function priorityTier(entity: GaokaoEntity): number {
     if (entity.entity_type !== "knowledge_point") return 4;
     return entity.priority_tier ?? 4;
@@ -136,6 +103,8 @@ function priorityTier(entity: GaokaoEntity): number {
 
 function toPlanItem(candidate: TodayPlannerCandidate): TodayPlanItem {
     const need = calculateCurrentNeed(candidate.events);
+    const flow = candidate.flow ?? deriveRoundState(candidate.events, candidate.entity.gaokao_id);
+    const flowIssue = candidate.flowIssue ?? (flow.ok === false ? flow.issue : undefined);
     return {
         entityId: candidate.entity.gaokao_id,
         path: candidate.path,
@@ -145,7 +114,10 @@ function toPlanItem(candidate: TodayPlannerCandidate): TodayPlanItem {
         subjectWeight: SUBJECT_PRIORITY_WEIGHTS[candidate.entity.subject],
         needLabel: need.label,
         needScore: need.score,
-        durationEstimate: estimateDuration(candidate.events),
+        round: flow.ok ? flow.state.round : undefined,
+        cycleRef: flow.ok ? flow.state.cycleRef : undefined,
+        action: flowIssue ?? (flow.ok ? (flow.state.round === "R1" ? candidate.r1Action ?? ROUND_ACTION.R1 : ROUND_ACTION[flow.state.round]) : "待核对"),
+        ...(flowIssue ? { flowIssue } : {}),
     };
 }
 
@@ -158,6 +130,8 @@ function isEligibleStatus(entity: GaokaoEntity): boolean {
 function compareProtected(left: TodayPlanItem, right: TodayPlanItem): number {
     const dueDifference = (left.dueUnix ?? 0) - (right.dueUnix ?? 0);
     if (dueDifference !== 0) return dueDifference;
+    const needDifference = right.needScore - left.needScore;
+    if (needDifference !== 0) return needDifference;
     const idDifference = left.entityId.localeCompare(right.entityId, "en");
     if (idDifference !== 0) return idDifference;
     return left.path.localeCompare(right.path, "zh-CN");
@@ -213,7 +187,7 @@ export function buildTodayPlan(
 
     for (const candidate of candidates) {
         if (!isEligibleStatus(candidate.entity)) continue;
-        if (candidate.schedule.kind === "unavailable") {
+        if (candidate.schedule.kind === "unavailable" || candidate.schedule.kind === "invalid") {
             unavailableScheduleCount++;
             continue;
         }
@@ -239,6 +213,10 @@ export function buildTodayPlan(
             continue;
         }
 
+        if (item.flowIssue || item.cycleRef !== null) {
+            unavailableScheduleCount++;
+            continue;
+        }
         discretionary.push({ candidate, item });
     }
 

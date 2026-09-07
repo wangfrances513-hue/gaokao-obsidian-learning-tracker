@@ -6,6 +6,7 @@ import { GaokaoWorkflowManager } from "src/gaokao/workflow-manager";
 import {
     GaokaoEventTypeModal,
     GaokaoFeedbackModal,
+    GaokaoRoundChoiceModal,
 } from "src/ui/obsidian-ui-components/modals/gaokao-workflow-modal";
 
 jest.mock("obsidian", () => {
@@ -36,6 +37,7 @@ jest.mock("src/ui/obsidian-ui-components/modals/gaokao-workflow-modal", () => ({
     GaokaoFeedbackModal: { capture: jest.fn() },
     GaokaoNoteCreationModal: jest.fn(),
     GaokaoRecentEventsModal: jest.fn(),
+    GaokaoRoundChoiceModal: { choose: jest.fn() },
 }));
 
 const eventTypeModalMock = jest.mocked(GaokaoEventTypeModal);
@@ -49,6 +51,7 @@ function setupManager() {
         Promise.resolve({ status: "recorded" as const }),
     );
     const plugin = {
+        register: jest.fn(),
         isInitialized: true,
         app: {
             workspace: {
@@ -77,6 +80,7 @@ function setupManager() {
 describe("V2 package A review and manual recording semantics", () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        jest.mocked(GaokaoRoundChoiceModal.choose).mockResolvedValue("ordinary");
     });
 
     test.each(["good", "easy"] as const)(

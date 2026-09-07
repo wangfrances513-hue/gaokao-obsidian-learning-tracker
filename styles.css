@@ -1244,7 +1244,7 @@ th.gridjs-th:last-child {
 .gaokao-today-section-description,
 .gaokao-today-summary-detail,
 .gaokao-today-item-meta,
-.gaokao-today-estimate small {
+.gaokao-today-execution small {
   color: var(--text-muted);
 }
 .gaokao-today-refresh {
@@ -1336,13 +1336,15 @@ th.gridjs-th:last-child {
   margin-top: 0.25rem;
   font-size: var(--font-ui-smaller);
 }
-.gaokao-today-estimate {
+.gaokao-today-execution {
   display: grid;
   flex: 0 0 auto;
   justify-items: end;
   font-size: var(--font-ui-small);
+  max-width: 52%;
+  white-space: normal;
 }
-.gaokao-today-estimate small {
+.gaokao-today-execution small {
   font-size: var(--font-ui-smaller);
 }
 .gaokao-today-item-arrow {
@@ -1380,7 +1382,8 @@ th.gridjs-th:last-child {
     align-items: flex-start;
     flex-wrap: wrap;
   }
-  .gaokao-today-estimate {
+  .gaokao-today-execution {
+    max-width: none;
     width: calc(100% - 1.8rem);
     justify-items: start;
     padding-left: 0.1rem;
@@ -1433,4 +1436,12 @@ th.gridjs-th:last-child {
 }
 .gaokao-recent-event:last-child {
   border-bottom: 0;
+}
+.gaokao-round-action {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  background: var(--background-secondary);
+  border-top: 1px solid var(--background-modifier-border);
 }

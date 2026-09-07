@@ -68,10 +68,9 @@ function createManagerHarness() {
     const createManager = () =>
         new GaokaoManager({
             getData: () => data,
-            persist: () => {
-                persistedEventCounts.push(data.learningEvents.length);
-                return Promise.resolve();
-            },
+            transact: async (operation) => await operation({ data, save: async (next) => {
+                Object.assign(data, next); persistedEventCounts.push(data.learningEvents.length);
+            } }),
             eventFactory,
         });
     return { createManager, data, persistedEventCounts };

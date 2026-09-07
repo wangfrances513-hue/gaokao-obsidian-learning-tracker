@@ -5,6 +5,11 @@ import {
     GaokaoImageAttachmentDisposition,
     GaokaoImageSubject,
 } from "src/gaokao/image-evidence";
+import {
+    GAOKAO_NOTE_TEMPLATES,
+    GaokaoNoteTemplateId,
+    getGaokaoNoteTemplate,
+} from "src/gaokao/workflow";
 
 export interface GaokaoImageEvidenceKnowledgeChoice {
     readonly id: string;
@@ -15,12 +20,17 @@ export interface GaokaoImageEvidenceKnowledgeChoice {
 export interface GaokaoImageEvidenceDraft {
     readonly file: File;
     readonly subject: GaokaoImageSubject;
+    readonly templateId: GaokaoNoteTemplateId;
     readonly title: string;
     readonly knowledgeId: string;
 }
 
 export interface GaokaoImageEvidenceConfirmation {
     readonly subject: GaokaoImageSubject;
+    readonly templateId: GaokaoNoteTemplateId;
+    readonly templateLabel: string;
+    readonly entityType: "knowledge_point" | "problem_case";
+    readonly folder: string;
     readonly knowledgeId: string;
     readonly knowledgePath: string;
     readonly attachmentDisposition: GaokaoImageAttachmentDisposition;
@@ -61,6 +71,7 @@ export class GaokaoImageEvidenceModal<TPlan> extends Modal {
     private resolvePromise: (result: GaokaoImageEvidenceModalResult) => void = () => undefined;
     private readonly options: GaokaoImageEvidenceModalOptions<TPlan>;
     private subject: GaokaoImageSubject = "数学";
+    private templateId: GaokaoNoteTemplateId = "math_concept";
     private title = "";
     private knowledgeId = "";
     private selectedFile: File | null = null;
@@ -121,15 +132,23 @@ export class GaokaoImageEvidenceModal<TPlan> extends Modal {
             );
         });
 
+        const templateSelect = this.contentEl.ownerDocument.createElement("select");
         const knowledgeSelect = this.contentEl.ownerDocument.createElement("select");
-        const selectedKnowledge = this.contentEl.createDiv({ cls: "gaokao-workflow-help" });
+        const routePreview = this.contentEl.ownerDocument.createElement("div");
+        routePreview.className = "gaokao-workflow-help";
+        const selectedKnowledge = this.contentEl.ownerDocument.createElement("div");
+        selectedKnowledge.className = "gaokao-workflow-help";
         const updateKnowledgeDisplay = () => {
+            if (this.currentTemplate().entityType !== "problem_case") {
+                selectedKnowledge.textContent =
+                    "知识类模板会创建新的 knowledge_point，无需关联已有知识点。";
+                return;
+            }
             const choice = this.currentKnowledgeChoice();
-            selectedKnowledge.setText(
+            selectedKnowledge.textContent =
                 choice === undefined
                     ? "尚未选择知识点。"
-                    : `已选知识点：${choice.path}｜${choice.id}`,
-            );
+                    : `已选知识点：${choice.path}｜${choice.id}`;
         };
         const rebuildKnowledgeOptions = () => {
             knowledgeSelect.replaceChildren();
@@ -147,30 +166,72 @@ export class GaokaoImageEvidenceModal<TPlan> extends Modal {
             knowledgeSelect.value = "";
             updateKnowledgeDisplay();
         };
+        const knowledgeSetting = new Setting(this.contentEl)
+            .setName("关联知识点")
+            .setDesc("题例类必须选择当前科目的唯一有效 knowledge_point；知识类不需要。");
+        knowledgeSetting.controlEl.appendChild(knowledgeSelect);
+        knowledgeSetting.infoEl.appendChild(selectedKnowledge);
+        const updateRouteDisplay = () => {
+            const template = this.currentTemplate();
+            routePreview.textContent = `模板：${template.label}｜${template.id}\n实体：${template.entityType}\n默认目录：${template.defaultFolder}`;
+            const requiresKnowledge = template.entityType === "problem_case";
+            knowledgeSetting.settingEl.classList.toggle("sr-is-hidden", !requiresKnowledge);
+            if (!requiresKnowledge) this.knowledgeId = "";
+            knowledgeSelect.value = this.knowledgeId;
+            updateKnowledgeDisplay();
+        };
+        const rebuildTemplateOptions = () => {
+            templateSelect.replaceChildren();
+            const templates = this.subjectTemplates();
+            for (const template of templates) {
+                const option = this.contentEl.ownerDocument.createElement("option");
+                option.text = template.label;
+                option.value = template.id;
+                templateSelect.appendChild(option);
+            }
+            if (!templates.some((template) => template.id === this.templateId)) {
+                const first = templates[0];
+                if (first === undefined) throw new Error("当前科目没有可用的 GAOKAO 模板。");
+                this.templateId = first.id;
+            }
+            templateSelect.value = this.templateId;
+            updateRouteDisplay();
+        };
 
         new Setting(this.contentEl).setName("科目").addDropdown((dropdown) => {
             for (const subject of GAOKAO_IMAGE_SUBJECTS) dropdown.addOption(subject, subject);
             dropdown.setValue(this.subject).onChange((value) => {
                 this.subject = GAOKAO_IMAGE_SUBJECTS.find((subject) => subject === value) ?? "数学";
+                this.knowledgeId = "";
+                rebuildTemplateOptions();
                 rebuildKnowledgeOptions();
             });
         });
 
-        new Setting(this.contentEl).setName("问题标题").addText((text) =>
+        const templateSetting = new Setting(this.contentEl)
+            .setName("模板")
+            .setDesc("按照 Project Preview 选择；写入前仍可改选。");
+        templateSetting.controlEl.appendChild(templateSelect);
+        templateSetting.infoEl.appendChild(routePreview);
+        templateSelect.addEventListener("change", () => {
+            this.templateId = templateSelect.value as GaokaoNoteTemplateId;
+            this.knowledgeId = "";
+            updateRouteDisplay();
+        });
+
+        new Setting(this.contentEl).setName("笔记标题").addText((text) =>
             text
                 .setPlaceholder("必填")
                 .setValue(this.title)
                 .onChange((value) => (this.title = value)),
         );
+        this.contentEl.appendChild(knowledgeSetting.settingEl);
 
-        const knowledgeSetting = new Setting(this.contentEl)
-            .setName("关联知识点")
-            .setDesc("必须选择一个当前科目的唯一有效 knowledge_point；不可手工输入。");
-        knowledgeSetting.controlEl.appendChild(knowledgeSelect);
         knowledgeSelect.addEventListener("change", () => {
             this.knowledgeId = knowledgeSelect.value;
             updateKnowledgeDisplay();
         });
+        rebuildTemplateOptions();
         rebuildKnowledgeOptions();
 
         const actionSetting = new Setting(this.contentEl);
@@ -197,6 +258,7 @@ export class GaokaoImageEvidenceModal<TPlan> extends Modal {
                         const planned = await this.options.onPlan({
                             file: this.selectedFile,
                             subject: this.subject,
+                            templateId: this.templateId,
                             title: this.title,
                             knowledgeId: this.knowledgeId,
                         });
@@ -233,10 +295,15 @@ export class GaokaoImageEvidenceModal<TPlan> extends Modal {
                 : "新建当前操作拥有的附件";
         const visibleLines = [
             `科目：${confirmation.subject}`,
-            `知识点：${confirmation.knowledgePath}｜${confirmation.knowledgeId}`,
+            `模板：${confirmation.templateLabel}｜${confirmation.templateId}`,
+            `实体：${confirmation.entityType}`,
+            `默认目录：${confirmation.folder}`,
+            confirmation.entityType === "problem_case"
+                ? `知识点：${confirmation.knowledgePath}｜${confirmation.knowledgeId}`
+                : "知识点关联：不适用（当前笔记本身是 knowledge_point）",
             `附件处置：${disposition}`,
             `计划附件路径：${confirmation.attachmentPath}`,
-            `计划问题笔记路径：${confirmation.notePath}`,
+            `计划笔记路径：${confirmation.notePath}`,
             "本次操作不会记录 Learning Event。",
         ];
         this.contentEl.createDiv({
@@ -310,6 +377,14 @@ export class GaokaoImageEvidenceModal<TPlan> extends Modal {
 
     private subjectKnowledgeChoices(): readonly GaokaoImageEvidenceKnowledgeChoice[] {
         return this.options.knowledgePoints.filter((choice) => choice.subject === this.subject);
+    }
+
+    private subjectTemplates() {
+        return GAOKAO_NOTE_TEMPLATES.filter((template) => template.subject === this.subject);
+    }
+
+    private currentTemplate() {
+        return getGaokaoNoteTemplate(this.templateId);
     }
 
     private currentKnowledgeChoice(): GaokaoImageEvidenceKnowledgeChoice | undefined {

@@ -16,14 +16,15 @@ const ENTITY_TYPE_LABELS = {
 } as const;
 
 const NEED_LABELS = {
-    again: "需重学",
-    hard: "较难",
-    unrated: "未评级",
-    good: "良好",
-    easy: "熟练",
+    again: "Again",
+    hard: "Hard",
+    unrated: "未评分",
+    good: "Good",
+    easy: "Easy",
 } as const;
 
 export class GaokaoTodayView extends ItemView {
+    private renderGeneration = 0;
     constructor(
         leaf: WorkspaceLeaf,
         private readonly todayManager: GaokaoTodayManager,
@@ -49,8 +50,20 @@ export class GaokaoTodayView extends ItemView {
         return Promise.resolve();
     }
 
+    protected onClose(): Promise<void> { this.renderGeneration++; return Promise.resolve(); }
+
     redraw(): void {
-        const snapshot = this.todayManager.createSnapshot();
+        const generation = ++this.renderGeneration;
+        void this.renderSnapshot(generation).catch(() => {
+            if (generation !== this.renderGeneration) return;
+            this.contentEl.empty();
+            this.contentEl.createEl("p", { text: "Today 当前无法核对权威排期，请稍后刷新。" });
+        });
+    }
+
+    private async renderSnapshot(generation: number): Promise<void> {
+        const snapshot = await this.todayManager.createSnapshot();
+        if (generation !== this.renderGeneration) return;
         const { plan } = snapshot;
         this.contentEl.empty();
         this.contentEl.addClass("gaokao-today-page");
@@ -97,6 +110,12 @@ export class GaokaoTodayView extends ItemView {
             plan.protectedReviews[0]?.entityId ?? plan.discretionaryWork[0]?.entityId;
         this.renderProtectedReviews(plan, primaryEntityId);
         this.renderDiscretionaryWork(plan.discretionaryWork, primaryEntityId);
+
+        if (snapshot.pendingIssue) {
+            const pending = this.contentEl.createDiv("gaokao-today-diagnostics");
+            pending.createEl("p", { text: snapshot.pendingIssue });
+            pending.createEl("button", { text: "核对未确认提交" }).onClickEvent(() => { void this.todayManager.openRecovery(); });
+        }
 
         if (snapshot.invalidOrDuplicateCount > 0 || plan.unavailableScheduleCount > 0) {
             const diagnostics = this.contentEl.createDiv("gaokao-today-diagnostics");
@@ -205,7 +224,8 @@ export class GaokaoTodayView extends ItemView {
     ): void {
         const button = parent.createEl("button", { cls: "gaokao-today-item" });
         button.setAttr("type", "button");
-        button.setAttr("aria-label", `打开 ${item.title}`);
+        button.setAttr("aria-label", `${item.title}：${item.action}`);
+        button.disabled = !!item.flowIssue;
         button.onClickEvent(() => void this.todayManager.openEntity(item.entityId));
 
         const main = button.createDiv("gaokao-today-item-main");
@@ -220,14 +240,9 @@ export class GaokaoTodayView extends ItemView {
             text: `${item.subject} · ${ENTITY_TYPE_LABELS[item.entityType]} · ${status}`,
         });
 
-        const estimate = button.createDiv("gaokao-today-estimate");
-        if (item.durationEstimate.source === "history") {
-            estimate.createSpan({ text: `约 ${item.durationEstimate.minutes} 分钟` });
-            estimate.createEl("small", { text: "历史中位数，仅供参考" });
-        } else {
-            estimate.createSpan({ text: "用时未知" });
-            estimate.createEl("small", { text: "无有效历史" });
-        }
+        const execution = button.createDiv("gaokao-today-execution");
+        execution.createSpan({ text: `${item.round ?? "待核对"}｜最近状态：${NEED_LABELS[item.needLabel]}` });
+        execution.createEl("small", { text: item.action });
         const arrow = button.createSpan("gaokao-today-item-arrow");
         setIcon(arrow, "arrow-up-right");
     }

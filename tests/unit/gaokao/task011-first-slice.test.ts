@@ -12,6 +12,7 @@ import {
     revalidatePreparedGaokaoImageEvidence,
     rollbackGaokaoImageAttachment,
 } from "src/gaokao/image-evidence";
+import { GAOKAO_NOTE_TEMPLATES, GaokaoNoteTemplateId } from "src/gaokao/workflow";
 import { GaokaoWorkflowManager } from "src/gaokao/workflow-manager";
 import {
     GaokaoImageEvidenceConfirmation,
@@ -265,6 +266,8 @@ interface CapturedModalOptions {
 interface FrozenCapturePlan {
     readonly image: { readonly sha256: string; readonly byteLength: number };
     readonly subject: string;
+    readonly templateId: GaokaoNoteTemplateId;
+    readonly folder: string;
     readonly knowledgeId: string;
     readonly knowledgePath: string;
     readonly gaokaoId: string;
@@ -457,7 +460,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         captureSpy = jest
             .spyOn(GaokaoImageEvidenceModal, "capture")
             .mockImplementation(async (_app, options) => {
-                capturedOptions = options as unknown as CapturedModalOptions;
+                capturedOptions = options;
                 return "cancelled";
             });
     });
@@ -474,36 +477,41 @@ describe("Task 011 first-slice workflow orchestration", () => {
         return capturedOptions;
     }
 
-    test("exposes all six subject knowledge points and maps each subject to its problem template", async () => {
+    test("exposes all six subject knowledge points and routes every canonical template", async () => {
         const harness = setupManager();
         const options = await optionsFor(harness);
-        const workflows = [
-            ["数学", "math-knowledge-001", "数学/代表题", "problem-math"],
-            ["生物", "biology-knowledge-001", "生物/问题与答案", "problem-biology"],
-            ["化学", "chemistry-knowledge-001", "化学/问题与错题", "problem-chemistry"],
-            ["物理", "physics-knowledge-001", "物理/代表题", "problem-physics"],
-            ["英语", "english-knowledge-001", "英语/阅读与错题", "problem-english-reading"],
-            ["语文", "chinese-knowledge-001", "语文/错题", "problem-chinese"],
-        ] as const;
-        expect(options.knowledgePoints.map((choice) => choice.subject)).toEqual(
-            workflows.map(([subject]) => subject),
+        expect(new Set(options.knowledgePoints.map((choice) => choice.subject))).toEqual(
+            new Set(["数学", "生物", "化学", "物理", "英语", "语文"]),
         );
-        for (const [subject, knowledgeId, folder, idPrefix] of workflows) {
+        for (const template of GAOKAO_NOTE_TEMPLATES) {
+            const knowledge = harness.knowledgePoints.find(
+                (candidate) => candidate.entity.subject === template.subject,
+            );
+            if (knowledge === undefined) throw new Error(`missing ${template.subject} knowledge`);
+            const knowledgeId =
+                template.entityType === "problem_case" ? knowledge.entity.gaokao_id : "";
             const planned = await options.onPlan({
                 file: fakeSelectedFile(),
-                subject,
-                title: `${subject}图片题`,
+                subject: template.subject,
+                templateId: template.id,
+                title: `${template.id}图片笔记`,
                 knowledgeId,
             });
             const plan = planned.plan as FrozenCapturePlan;
-            expect(plan.notePath).toBe(`${folder}/${subject}图片题.md`);
-            expect(plan.gaokaoId).toBe(`${idPrefix}-123e4567e89b`);
+            expect(plan.notePath).toBe(`${template.defaultFolder}/${template.id}图片笔记.md`);
+            expect(plan.gaokaoId).toBe(`${template.idPrefix}-123e4567e89b`);
             expect(plan.frontmatter).toMatchObject({
-                entity_type: "problem_case",
-                subject,
-                knowledge_ids: [knowledgeId],
-                source: "image_capture",
+                entity_type: template.entityType,
+                subject: template.subject,
             });
+            if (template.entityType === "problem_case") {
+                expect(plan.frontmatter).toMatchObject({
+                    knowledge_ids: [knowledgeId],
+                    source: "image_capture",
+                });
+            } else {
+                expect(plan.frontmatter).not.toHaveProperty("knowledge_ids");
+            }
         }
         expect(harness.vault.create).not.toHaveBeenCalled();
     });
@@ -514,6 +522,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
             (await optionsFor(missing)).onPlan({
                 file: fakeSelectedFile(),
                 subject: "数学",
+                templateId: "math_problem",
                 title: "缺失",
                 knowledgeId: "",
             }),
@@ -525,6 +534,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
             (await optionsFor(duplicate)).onPlan({
                 file: fakeSelectedFile(),
                 subject: "数学",
+                templateId: "math_problem",
                 title: "重复",
                 knowledgeId: "math-knowledge-001",
             }),
@@ -535,6 +545,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
             (await optionsFor(wrongSubject)).onPlan({
                 file: fakeSelectedFile(),
                 subject: "数学",
+                templateId: "math_problem",
                 title: "错科",
                 knowledgeId: "biology-knowledge-001",
             }),
@@ -546,10 +557,58 @@ describe("Task 011 first-slice workflow orchestration", () => {
             (await optionsFor(wrongType)).onPlan({
                 file: fakeSelectedFile(),
                 subject: "数学",
+                templateId: "math_problem",
                 title: "错类型",
                 knowledgeId: "math-knowledge-001",
             }),
         ).rejects.toThrow(/knowledge_point/);
+    });
+
+    test("creates a knowledge template without a second knowledge-point association", async () => {
+        const harness = setupManager();
+        const options = await optionsFor(harness);
+        const planned = await options.onPlan({
+            file: fakeSelectedFile(),
+            subject: "数学",
+            templateId: "math_concept",
+            title: "图片概念",
+            knowledgeId: "",
+        });
+        const plan = planned.plan as FrozenCapturePlan;
+        expect(plan).toMatchObject({
+            templateId: "math_concept",
+            folder: "数学/知识点",
+            knowledgeId: "",
+            knowledgePath: "",
+            notePath: "数学/知识点/图片概念.md",
+        });
+        expect(plan.frontmatter).toMatchObject({
+            entity_type: "knowledge_point",
+            subject: "数学",
+            knowledge_type: "memory",
+        });
+        expect(plan.frontmatter).not.toHaveProperty("knowledge_ids");
+
+        await options.onCommit(planned.plan);
+        expect(harness.vault.create).toHaveBeenCalledWith(
+            "数学/知识点/图片概念.md",
+            expect.stringContaining("![[资源/图片/数学/"),
+        );
+        expectNoAuthorityWrites(harness);
+    });
+
+    test("rejects a template that does not belong to the selected subject", async () => {
+        const harness = setupManager();
+        await expect(
+            (await optionsFor(harness)).onPlan({
+                file: fakeSelectedFile(),
+                subject: "数学",
+                templateId: "physics_model",
+                title: "跨科模板",
+                knowledgeId: "",
+            }),
+        ).rejects.toThrow(/不属于当前科目/);
+        expect(harness.vault.create).not.toHaveBeenCalled();
     });
 
     test("rejects a generated gaokao_id collision before writes", async () => {
@@ -560,6 +619,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
             options.onPlan({
                 file: fakeSelectedFile(),
                 subject: "数学",
+                templateId: "math_problem",
                 title: "ID 冲突",
                 knowledgeId: "math-knowledge-001",
             }),
@@ -574,6 +634,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         ).onPlan({
             file: fakeSelectedFile(),
             subject: "数学",
+            templateId: "math_problem",
             title: "冻结计划",
             knowledgeId: "math-knowledge-001",
         });
@@ -600,6 +661,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         const stalePlan = await staleOptions.onPlan({
             file: fakeSelectedFile(),
             subject: "数学",
+            templateId: "math_problem",
             title: "陈旧知识",
             knowledgeId: "math-knowledge-001",
         });
@@ -614,6 +676,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         const duplicatePlan = await duplicateOptions.onPlan({
             file: fakeSelectedFile(),
             subject: "数学",
+            templateId: "math_problem",
             title: "重复状态变化",
             knowledgeId: "math-knowledge-001",
         });
@@ -636,6 +699,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         const occupiedPlan = await occupiedOptions.onPlan({
             file: fakeSelectedFile(),
             subject: "数学",
+            templateId: "math_problem",
             title: "占用路径",
             knowledgeId: "math-knowledge-001",
         });
@@ -656,6 +720,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
             const planned = await options.onPlan({
                 file: fakeSelectedFile(),
                 subject,
+                templateId: workflowKind,
                 title: `${subject}捕获成功`,
                 knowledgeId,
             });
@@ -682,6 +747,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         const planned = await options.onPlan({
             file: fakeSelectedFile(),
             subject: "数学",
+            templateId: "math_problem",
             title: "不静默变化",
             knowledgeId: "math-knowledge-001",
         });
@@ -712,6 +778,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         const planned = await options.onPlan({
             file: fakeSelectedFile(),
             subject: "数学",
+            templateId: "math_problem",
             title: "附件失败",
             knowledgeId: "math-knowledge-001",
         });
@@ -728,6 +795,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         const planned = await options.onPlan({
             file: fakeSelectedFile(),
             subject: "数学",
+            templateId: "math_problem",
             title: "笔记失败",
             knowledgeId: "math-knowledge-001",
         });
@@ -753,6 +821,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         const planned = await options.onPlan({
             file: fakeSelectedFile(),
             subject: "数学",
+            templateId: "math_problem",
             title: "复用附件",
             knowledgeId: "math-knowledge-001",
         });
@@ -774,6 +843,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         const ambiguousPlan = await ambiguousOptions.onPlan({
             file: fakeSelectedFile(),
             subject: "数学",
+            templateId: "math_problem",
             title: "歧义",
             knowledgeId: "math-knowledge-001",
         });
@@ -800,6 +870,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         const identicalPlan = await identicalOptions.onPlan({
             file: fakeSelectedFile(),
             subject: "数学",
+            templateId: "math_problem",
             title: "内容一致",
             knowledgeId: "math-knowledge-001",
         });
@@ -821,6 +892,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         const indexPlan = await indexOptions.onPlan({
             file: fakeSelectedFile(),
             subject: "数学",
+            templateId: "math_problem",
             title: "索引失败",
             knowledgeId: "math-knowledge-001",
         });
@@ -849,6 +921,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         const openPlan = await openOptions.onPlan({
             file: fakeSelectedFile(),
             subject: "生物",
+            templateId: "biology_problem_answer",
             title: "打开失败",
             knowledgeId: "biology-knowledge-001",
         });
@@ -880,7 +953,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
         await first;
     });
 
-    test("renders all six subjects and filters knowledge choices to the selected subject", async () => {
+    test("renders all six subjects, canonical templates, and subject knowledge choices", async () => {
         captureSpy.mockRestore();
         const knowledgePoints: GaokaoImageEvidenceKnowledgeChoice[] = [
             { id: "math-knowledge-001", path: "数学/知识点/函数.md", subject: "数学" },
@@ -899,12 +972,20 @@ describe("Task 011 first-slice workflow orchestration", () => {
         });
         const selects = document.querySelectorAll("select");
         const subjectSelect = selects[0];
-        const knowledgeSelect = selects[1];
+        const templateSelect = selects[1];
+        const knowledgeSelect = selects[2];
         if (!(subjectSelect instanceof HTMLSelectElement)) {
             throw new Error("missing subject select");
         }
+        if (!(templateSelect instanceof HTMLSelectElement)) {
+            throw new Error("missing template select");
+        }
         if (!(knowledgeSelect instanceof HTMLSelectElement)) {
             throw new Error("missing knowledge select");
+        }
+        const knowledgeSetting = knowledgeSelect.parentElement?.parentElement;
+        if (!(knowledgeSetting instanceof HTMLElement)) {
+            throw new Error("missing knowledge setting");
         }
         expect([...subjectSelect.options].map((option) => option.value)).toEqual([
             "数学",
@@ -914,17 +995,33 @@ describe("Task 011 first-slice workflow orchestration", () => {
             "英语",
             "语文",
         ]);
+        expect([...templateSelect.options].map((option) => option.value)).toEqual([
+            "math_concept",
+            "math_method",
+            "math_problem",
+        ]);
         expect([...knowledgeSelect.options].map((option) => option.value)).toEqual([
             "",
             "math-knowledge-001",
         ]);
+        expect(knowledgeSetting.classList.contains("sr-is-hidden")).toBe(true);
+
+        templateSelect.value = "math_problem";
+        templateSelect.dispatchEvent(new Event("change"));
+        expect(knowledgeSetting.classList.contains("sr-is-hidden")).toBe(false);
 
         subjectSelect.value = "化学";
         subjectSelect.dispatchEvent(new Event("change"));
+        expect([...templateSelect.options].map((option) => option.value)).toEqual([
+            "chemistry_knowledge",
+            "chemistry_reaction_experiment",
+            "chemistry_problem_error",
+        ]);
         expect([...knowledgeSelect.options].map((option) => option.value)).toEqual([
             "",
             "chemistry-knowledge-001",
         ]);
+        expect(knowledgeSetting.classList.contains("sr-is-hidden")).toBe(true);
 
         findButton("取消").click();
         await capturePromise;
@@ -932,6 +1029,7 @@ describe("Task 011 first-slice workflow orchestration", () => {
 
     test("visibly discloses multiple exact duplicate paths in final confirmation", async () => {
         captureSpy.mockRestore();
+        let submittedDraft: GaokaoImageEvidenceDraft | null = null;
         const duplicatePaths = [
             `资源/图片/数学/2025/01/${"a".repeat(64)}.jpg`,
             `资源/图片/生物/2025/02/${"a".repeat(64)}.jpg`,
@@ -944,24 +1042,31 @@ describe("Task 011 first-slice workflow orchestration", () => {
                     subject: "数学",
                 },
             ],
-            onPlan: async (_draft) => ({
-                confirmation: {
-                    subject: "数学",
-                    knowledgeId: "math-knowledge-001",
-                    knowledgePath: "数学/知识点/函数.md",
-                    attachmentDisposition: "reused_existing",
-                    attachmentPath: duplicatePaths[0],
-                    notePath: "数学/代表题/重复披露.md",
-                    sha256: "a".repeat(64),
-                    byteLength: 9,
-                    canonicalKind: "jpeg",
-                    capturedYear: "2026",
-                    capturedMonth: "08",
-                    sourceHintWarnings: [],
-                    duplicateRisk: { exactMatchPaths: duplicatePaths },
-                } as unknown as GaokaoImageEvidenceConfirmation,
-                plan: {},
-            }),
+            onPlan: async (draft) => {
+                submittedDraft = draft;
+                return {
+                    confirmation: {
+                        subject: "数学",
+                        templateId: "math_problem",
+                        templateLabel: "数学｜代表题",
+                        entityType: "problem_case",
+                        folder: "数学/代表题",
+                        knowledgeId: "math-knowledge-001",
+                        knowledgePath: "数学/知识点/函数.md",
+                        attachmentDisposition: "reused_existing",
+                        attachmentPath: duplicatePaths[0],
+                        notePath: "数学/代表题/重复披露.md",
+                        sha256: "a".repeat(64),
+                        byteLength: 9,
+                        canonicalKind: "jpeg",
+                        capturedYear: "2026",
+                        capturedMonth: "08",
+                        sourceHintWarnings: [],
+                        duplicateRisk: { exactMatchPaths: duplicatePaths },
+                    } as unknown as GaokaoImageEvidenceConfirmation,
+                    plan: {},
+                };
+            },
             onCommit: async () => undefined,
         });
         const fileInput = document.querySelector('input[type="file"]');
@@ -976,10 +1081,16 @@ describe("Task 011 first-slice workflow orchestration", () => {
         titleInput.value = "重复披露";
         titleInput.dispatchEvent(new Event("input"));
         const selects = document.querySelectorAll("select");
-        const knowledgeSelect = selects[1];
+        const templateSelect = selects[1];
+        const knowledgeSelect = selects[2];
+        if (!(templateSelect instanceof HTMLSelectElement)) {
+            throw new Error("missing template select");
+        }
         if (!(knowledgeSelect instanceof HTMLSelectElement)) {
             throw new Error("missing knowledge select");
         }
+        templateSelect.value = "math_problem";
+        templateSelect.dispatchEvent(new Event("change"));
         knowledgeSelect.value = "math-knowledge-001";
         knowledgeSelect.dispatchEvent(new Event("change"));
         findButton("生成确认计划").click();
@@ -998,6 +1109,14 @@ describe("Task 011 first-slice workflow orchestration", () => {
 
         expect(visibleConfirmation).toContain(duplicatePaths[0]);
         expect(visibleConfirmation).toContain(duplicatePaths[1]);
+        expect(visibleConfirmation).toContain("数学｜代表题｜math_problem");
+        expect(visibleConfirmation).toContain("默认目录：数学/代表题");
+        expect(submittedDraft).toMatchObject({
+            subject: "数学",
+            templateId: "math_problem",
+            title: "重复披露",
+            knowledgeId: "math-knowledge-001",
+        });
         expect(technicalDetails.open).toBe(false);
         expect(technicalDetails.textContent).toContain("SHA-256");
         expect(alwaysVisibleText).toContain(duplicatePaths[0]);

@@ -8,11 +8,13 @@ import { SettingsUtil, SRSettings } from "src/data/settings";
 import { Note } from "src/note/note";
 import { NoteFileLoader } from "src/note/note-file-loader";
 import { NoteReviewQueue } from "src/note/note-review-queue";
+import { SchedNote } from "src/note/note-review-deck";
 import { RepItemScheduleInfo } from "src/scheduling/algorithms/base/rep-item-schedule-info";
 import { ReviewResponse } from "src/scheduling/algorithms/base/repetition-item";
 import { SRAlgorithm } from "src/scheduling/algorithms/base/sr-algorithm";
 import { IOsrVaultNoteLinkInfoFinder } from "src/scheduling/algorithms/osr/obsidian-vault-notelink-info-finder";
 import { OsrNoteGraph } from "src/scheduling/algorithms/osr/osr-note-graph";
+import { SRAlgorithmOsr } from "src/scheduling/algorithms/osr/srs-algorithm-osr";
 import { CardDueDateHistogram, NoteDueDateHistogram } from "src/scheduling/due-date-histogram";
 import { FlashcardReviewMode } from "src/scheduling/flashcard-review-sequencer";
 import { globalDateProvider, IDayBoundary } from "src/utils/dates";
@@ -338,6 +340,25 @@ export class OsrCore {
         // Store away the new schedule info
         await this.writeNoteSchedule(noteFile, noteSchedule);
 
+        await this.refreshAfterNoteSchedule(noteFile, originalNoteSchedule, noteSchedule, settings);
+    }
+
+    prepareRoundSchedule(path: string, before: RepItemScheduleInfo | null, response: ReviewResponse): RepItemScheduleInfo {
+        const algorithm = SRAlgorithm.getInstance();
+        const graph = this.osrNoteGraph;
+        if (graph === null) {
+            throw new Error("原 whole-note scheduler 尚未就绪。");
+        }
+        return SRAlgorithmOsr.withNoteEaseSnapshot(algorithm.noteStats(), () => before === null
+            ? algorithm.noteCalcNewSchedule(path, graph, response, this._dueDateNoteHistogram)
+            : algorithm.noteCalcUpdatedSchedule(path, before, response, this._dueDateNoteHistogram));
+    }
+
+    /** Updates derived queues/bury/UI only; never calculates or writes a second rating. */
+    async refreshAfterNoteSchedule(
+        noteFile: ISRNoteTFile, originalNoteSchedule: RepItemScheduleInfo | null,
+        noteSchedule: RepItemScheduleInfo, settings: SRSettings, roundCommit = false,
+    ): Promise<void> {
         const matchedNoteTags = SettingsUtil.filterForNoteReviewTag(
             this.settings,
             noteFile.getAllTagsFromCache(),
@@ -348,6 +369,19 @@ export class OsrCore {
         // (This could be optimized to make the small adjustments to the histogram, but simpler to implement
         // by recalculating from scratch)
         this._noteReviewQueue.updateScheduleInfo(noteFile, noteSchedule);
+        if (roundCommit) {
+            // The legacy helper updates the first matching deck. Reconcile every existing
+            // membership for this one confirmed note, without scoring or creating another queue.
+            for (const deck of this._noteReviewQueue.reviewDecks.values()) {
+                const wasNew = deck.newNotes.some((note) => note.path === noteFile.path);
+                const scheduled = deck.scheduledNotes.filter((note) => note.note.path === noteFile.path);
+                for (let index = deck.newNotes.length - 1; index >= 0; index--) {
+                    if (deck.newNotes[index].path === noteFile.path) deck.newNotes.splice(index, 1);
+                }
+                for (const note of scheduled) note.dueUnix = noteSchedule.dueDateAsUnix;
+                if (wasNew && scheduled.length === 0) deck.scheduledNotes.push(new SchedNote(noteFile, noteSchedule.dueDateAsUnix));
+            }
+        }
         this.calculateDerivedInfo();
 
         // If configured in the settings, bury all cards within the note

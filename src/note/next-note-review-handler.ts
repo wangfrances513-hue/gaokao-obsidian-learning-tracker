@@ -19,7 +19,8 @@ export class NextNoteReviewHandler {
         return this._noteReviewQueue;
     }
 
-    constructor(app: App, settings: SRSettings, noteReviewQueue: NoteReviewQueue) {
+    constructor(app: App, settings: SRSettings, noteReviewQueue: NoteReviewQueue,
+        private readonly routeNote?: (file: TFile) => Promise<boolean>) {
         this.app = app;
         this.settings = settings;
         this._noteReviewQueue = noteReviewQueue;
@@ -80,6 +81,7 @@ export class NextNoteReviewHandler {
 
     async openNote(deckName: string, file: TFile): Promise<void> {
         this._lastSelectedReviewDeck = deckName;
+        if (this.routeNote && await this.routeNote(file)) return;
         await this.app.workspace.getLeaf().openFile(file);
     }
 }

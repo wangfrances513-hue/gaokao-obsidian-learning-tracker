@@ -1,0 +1,36 @@
+{
+  "version": "0.1.0-rc.1-gaokao.2",
+  "tag": "v0.1.0-rc.1-gaokao.2",
+  "files": [
+    {
+      "name": "main.js",
+      "sha256": "cb282df08d4b8a6a383ce472c08c8554cdfb8e556e54821a84f5fd4d0e030213",
+      "bytes": 1721752
+    },
+    {
+      "name": "manifest.json",
+      "sha256": "65705024b9fd9150b9d61e57c9be504ea65315c31286eb806f688e23d9115308",
+      "bytes": 567
+    },
+    {
+      "name": "styles.css",
+      "sha256": "53f600deaa64101448c3425cde8689bf5b80556b3c738cdde10f0c784cbf6dab",
+      "bytes": 34868
+    }
+  ],
+  "archive": {
+    "name": "gaokao-obsidian-learning-tracker-v0.1.0-rc.1-gaokao.2.zip",
+    "sha256": "0e96ae1b3dcfbdb114a8927da0bf76c896ff87116962f65e48f8ac223738ceab",
+    "bytes": 367018
+  },
+  "validation": {
+    "typecheckExitCode": 0,
+    "productionBuildExitCode": 0,
+    "jestSuites": 12,
+    "jestTestsPassed": 258,
+    "jestTestsFailed": 0,
+    "exampleCopies": 24,
+    "roundStructureChecks": 48,
+    "runtimeAcceptance": "INCONCLUSIVE: native first frame and process recovery not fully verified"
+  }
+}

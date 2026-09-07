@@ -1,8 +1,10 @@
 import {
     FileManager,
     FrontMatterCache,
+    getFrontMatterInfo,
     getAllTags as ObsidianGetAllTags,
     MetadataCache,
+    parseYaml,
     TagCache,
     TFile,
     Vault,
@@ -105,6 +107,24 @@ export abstract class SRTFile implements ISRFile {
         }
 
         return result;
+    }
+
+    /** Reads durable text; metadataCache is never used as a write receipt. */
+    async readPersistentMetadata(): Promise<{ text: string; frontmatter: Record<string, unknown>; tags: string[] }> {
+        const text = await this.vault.read(this.file);
+        const info = getFrontMatterInfo(text);
+        const parsed: unknown = info.exists ? parseYaml(info.frontmatter) : {};
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("持久 YAML 不是有效对象。");
+        const frontmatter = parsed as Record<string, unknown>;
+        const tags = parseObsidianFrontmatterTag(String(frontmatter.tags ?? ""));
+        // Cached inline-tag positions are accepted only when the durable bytes still match.
+        for (const tag of this.metadataCache.getFileCache(this.file)?.tags ?? []) {
+            if (text.slice(tag.position.start.offset, tag.position.end.offset) !== tag.tag) {
+                throw new Error("行内复习标签缓存与持久正文不符，暂不提交。");
+            }
+            tags.push(tag.tag);
+        }
+        return { text, frontmatter, tags };
     }
 
     /**
